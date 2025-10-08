@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Custom styles */
+body {
+  font-family: system-ui, sans-serif;
+  background-color: #f9fafb;
+}
+
+/* Button reset (shadcn) */
+button {
+  transition: background 0.2s;
+}
+
+/* Hide scrollbar in sidebar if needed */
+aside::-webkit-scrollbar {
+  display: none;
+}
