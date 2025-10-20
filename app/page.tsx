@@ -19,9 +19,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold mb-4">
-        Pages / {getPageName()}
-      </h1>
+      
       <DashboardCards />
     </div>
   );
