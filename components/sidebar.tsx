@@ -19,6 +19,7 @@ import {
   Shield,
   Link2,
   Globe,
+  Search,
 } from "lucide-react";
 import clsx from "clsx";
 import { LucideIcon } from "lucide-react";
@@ -51,6 +52,7 @@ export const Sidebar = ({ onToggle }: { onToggle?: (collapsed: boolean) => void 
     { name: "Content Builder", icon: Layers, path: "/content-builder" },
     { name: "Content Management", icon: Folder, path: "/content-management" },
     { name: "Content Relations", icon: Link2, path: "/content-relations" },
+    { name: "Search", icon: Search, path: "/search" },
     
     
     { divider: "MEDIA & ASSETS" },
@@ -139,8 +141,9 @@ export const Sidebar = ({ onToggle }: { onToggle?: (collapsed: boolean) => void 
               key={menu.name}
               href={menu.path ?? "#"}
               className={clsx(
-                "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 min-h-[44px]",
-                collapsed ? "justify-center px-2" : "justify-start"
+                "flex items-center gap-3 px-4 py-2.5 rounded-md transition-all duration-200 min-h-[44px] relative",
+                collapsed ? "justify-center px-2" : "justify-start",
+                isActive(menu.path) && "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-1 before:h-8 before:bg-white before:rounded-r-full before:opacity-90"
               )}
               style={{
                 backgroundColor: isActive(menu.path)
@@ -149,6 +152,9 @@ export const Sidebar = ({ onToggle }: { onToggle?: (collapsed: boolean) => void 
                 color: isActive(menu.path)
                   ? "var(--sidebar-active-text)"
                   : "var(--button-text)",
+                boxShadow: isActive(menu.path) 
+                  ? "inset 0 0 10px rgba(255, 255, 255, 0.08)" 
+                  : "none",
               }}
               onMouseEnter={(e) => {
                 if (!isActive(menu.path))

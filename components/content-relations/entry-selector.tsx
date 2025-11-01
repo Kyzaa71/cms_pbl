@@ -98,7 +98,7 @@ export function EntrySelector({
 
       {/* Results Dropdown */}
       {isOpen && availableEntries.length > 0 && (
-        <Card className="absolute z-50 w-full mt-2 max-h-60 overflow-y-auto border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-lg">
+        <Card className="absolute z-50 w-full mt-2 max-h-60 overflow-y-auto custom-scrollbar border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-lg">
           <div className="p-2 space-y-1">
             {availableEntries.map((entry) => (
               <button

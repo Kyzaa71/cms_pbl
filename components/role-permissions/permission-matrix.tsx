@@ -113,7 +113,7 @@ export function PermissionMatrix({ permissions, onChange }: PermissionMatrixProp
         </p>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)]">

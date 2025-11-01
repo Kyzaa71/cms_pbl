@@ -64,6 +64,65 @@ button {
   background-color: rgba(255, 255, 255, 0.5);
 }
 
+/* === Modern Thin Scrollbar (Reusable) === */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.custom-scrollbar:hover {
+  scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+}
+
+/* Webkit browsers (Chrome, Safari, Edge) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 10px;
+  transition: background-color 0.3s ease;
+}
+
+.custom-scrollbar:hover::-webkit-scrollbar-thumb,
+.custom-scrollbar:active::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.5);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.7);
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .custom-scrollbar {
+  scrollbar-color: rgba(156, 163, 175, 0.2) transparent;
+}
+
+[data-theme="dark"] .custom-scrollbar:hover {
+  scrollbar-color: rgba(156, 163, 175, 0.4) transparent;
+}
+
+[data-theme="dark"] .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.2);
+}
+
+[data-theme="dark"] .custom-scrollbar:hover::-webkit-scrollbar-thumb,
+[data-theme="dark"] .custom-scrollbar:active::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.4);
+}
+
+[data-theme="dark"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.6);
+}
+
 /* === Tailwind Theme Inline (v4 compatible) === */
 @theme inline {
   --color-background: var(--background);
@@ -122,46 +181,53 @@ button {
 
 /* === Dark Mode === */
 [data-theme="dark"] {
-  --background: #0a0a0a;
+  /* Background - Balanced dark gray instead of pure black */
+  --background: #121212; /* Material Design dark surface - balanced dark gray */
   --foreground: #fafafa;
   --muted-foreground: #d4d4d4;
 
-  --primary: #1d4ed8;
-  --primary-hover: #3b82f6;
+  /* Buttons & primary color - Brighter for better visibility in dark mode */
+  --primary: #3b82f6; /* Brighter blue for dark mode */
+  --primary-hover: #60a5fa;
   --button-text: #ffffff;
   --danger: #f87171;
   --secondary: #8b5cf6;
 
-  --table-header-bg: #3b115e;
-  --table-header-text: #e5e7eb;
+  --table-header-bg: #1e293b; /* Slightly lighter for better contrast */
+  --table-header-text: #f1f5f9;
 
-  --card-bg: #111827;
-  --card-bg-inner: #1f2937;
+  /* Card - Hierarchical with subtle elevation */
+  --card-bg: #1e1e1e; /* Slightly lighter than background for elevation */
+  --card-bg-inner: #262626; /* Even lighter for inner cards - creates depth */
 
   --accent: #facc15;
   --accent-text: #000000;
 
-  --sidebar-bg: #000000;
+  /* Sidebar - Balanced dark, not pure black */
+  --sidebar-bg: #1a1a1a; /* Slightly lighter than background */
   --sidebar-text: #ffffff;
-  --sidebar-hover: rgba(255, 255, 255, 0.1);
+  --sidebar-hover: rgba(255, 255, 255, 0.08); /* More subtle hover */
 
+  /* Card gradients - Adjusted for better contrast */
   --card-bg-top: #1e1b3a; /* ungu gelap */
-  --card-bg-mid: #1e3a8a; /* biru gelap */
-  --card-bg-mid-alt: #1e40af; /* biru tua */
-  --card-bg-gradient-1: #111827; /* slate-900 */
-  --card-bg-gradient-2: #1e293b; /* slate-800 */
+  --card-bg-mid: #2563eb; /* biru terang untuk dark mode */
+  --card-bg-mid-alt: #3b82f6; /* biru medium */
+  --card-bg-gradient-1: #1e1e1e; /* Matches card-bg */
+  --card-bg-gradient-2: #262626; /* Slightly lighter */
   --card-text: #f1f5f9; /* abu terang */
 
-  --dropdown-bg: #1e293b;
+  /* Dropdown - Better contrast */
+  --dropdown-bg: #262626; /* Slightly lighter than card-bg-inner */
   --dropdown-text: #f1f5f9;
-  --dropdown-border: #334155;
-  --dropdown-hover-bg: #334155;
+  --dropdown-border: #404040; /* More visible borders */
+  --dropdown-hover-bg: #333333; /* Clearer hover state */
   --dropdown-hover-text: #ffffff;
 
-  --border: #2e2e2e;
-  --input-bg: #1f2937;
+  /* Borders - More visible but not harsh */
+  --border: #404040; /* Gray-700 equivalent - visible but not harsh */
+  --input-bg: #1e1e1e; /* Matches card-bg for consistency */
 
-  --sidebar-active-bg: #2563eb; /* biru terang agar terlihat di dark */
+  --sidebar-active-bg: rgba(255, 255, 255, 0.15); /* Subtle white tint for clear visibility */
   --sidebar-active-text: #ffffff;
 }
 
@@ -191,7 +257,7 @@ button {
 }
 
 [data-theme="dark"] .auth-card {
-  background-color: rgba(17, 24, 39, 0.8);
+  background-color: rgba(30, 30, 30, 0.9); /* Matches new card-bg-inner */
   color: #fafafa;
 }
 
@@ -219,8 +285,8 @@ button {
 }
 
 [data-theme="dark"] .auth-input {
-  background-color: rgba(31, 41, 55, 0.5);
-  border-color: rgba(75, 85, 99, 0.6);
+  background-color: rgba(30, 30, 30, 0.8); /* Matches new input-bg */
+  border-color: rgba(64, 64, 64, 0.8); /* Matches new border */
   color: #f9fafb;
 }
 
@@ -230,7 +296,7 @@ button {
 }
 
 [data-theme="dark"] .auth-input:focus {
-  background-color: rgba(31, 41, 55, 0.8);
+  background-color: rgba(30, 30, 30, 1); /* Matches new input-bg */
   border-color: #3b82f6;
 }
 
@@ -247,14 +313,14 @@ button {
 }
 
 [data-theme="dark"] .auth-google-button {
-  background-color: rgba(31, 41, 55, 0.8);
-  border-color: rgba(75, 85, 99, 0.6);
+  background-color: rgba(30, 30, 30, 0.8); /* Matches new card-bg */
+  border-color: rgba(64, 64, 64, 0.8); /* Matches new border */
   color: #d1d5db;
 }
 
 [data-theme="dark"] .auth-google-button:hover {
-  background-color: rgba(31, 41, 55, 0.9);
-  border-color: rgba(75, 85, 99, 0.8);
+  background-color: rgba(38, 38, 38, 0.9); /* Slightly lighter hover */
+  border-color: rgba(64, 64, 64, 1); /* Full opacity on hover */
 }
 
 /* === Page Background === */
@@ -263,7 +329,7 @@ button {
 }
 
 [data-theme="dark"] .auth-page-bg {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: linear-gradient(135deg, #121212 0%, #1e1e1e 100%); /* Matches new background colors */
 }
 
 /* === Modal Animation === */

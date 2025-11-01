@@ -30,7 +30,7 @@ export function AssignmentsList({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto custom-scrollbar">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)] text-left">

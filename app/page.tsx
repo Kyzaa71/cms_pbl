@@ -1,25 +1,20 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import {DashboardCards} from "@/components/dashboard-cards";
+import { DashboardCards } from "@/components/dashboard/dashboard-cards";
 
 export default function DashboardPage() {
-  const pathname = usePathname();
-
-  const getPageName = () => {
-    if (pathname === "/") return "Dashboard";
-    const parts = pathname.split("/").filter(Boolean);
-    const last = parts[parts.length - 1];
-    return last
-      ? last
-          .replace(/-/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase())
-      : "Dashboard";
-  };
-
   return (
-    <div>
-      
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-[var(--foreground)] transition-colors">
+          Dashboard
+        </h1>
+        <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
+          Overview of your projects, content, and activities across the platform
+        </p>
+      </div>
+
       <DashboardCards />
     </div>
   );
