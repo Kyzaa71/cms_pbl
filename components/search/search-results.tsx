@@ -36,16 +36,20 @@ export function SearchResults({
   // Empty state - no search performed
   if (!hasActiveFilters) {
     return (
-      <Card className="p-16 text-center border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-sm">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--primary)]/10 flex items-center justify-center">
-          <Search className="w-8 h-8 text-[var(--primary)]" />
+      <Card className="p-12 text-center border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-sm">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-[var(--primary)]/10 to-[var(--primary)]/5 flex items-center justify-center border-2 border-[var(--primary)]/20">
+          <Search className="w-7 h-7 text-[var(--primary)]" />
         </div>
         <h3 className="text-xl font-semibold text-[var(--foreground)] mb-2">
           Start Searching
         </h3>
-        <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto">
+        <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto mb-4">
           Enter a search query or use filters to find content entries across your CMS
         </p>
+        <div className="inline-flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] px-3 py-1.5 rounded-md bg-[var(--card-bg)] border border-[var(--border)]">
+          <span className="text-yellow-500">💡</span>
+          <span>Try searching by title, description, or use filters to narrow down results</span>
+        </div>
       </Card>
     );
   }
@@ -53,20 +57,20 @@ export function SearchResults({
   // No results found
   if (!searchResult || searchResult.entries.length === 0) {
     return (
-      <Card className="p-16 text-center border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-sm">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-orange-500/10 flex items-center justify-center">
-          <Search className="w-8 h-8 text-orange-500" />
+      <Card className="p-12 text-center border border-[var(--border)] bg-[var(--card-bg-inner)] shadow-sm">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-orange-500/10 to-orange-500/5 flex items-center justify-center border-2 border-orange-500/20">
+          <Search className="w-7 h-7 text-orange-500" />
         </div>
         <h3 className="text-xl font-semibold text-[var(--foreground)] mb-2">
           No Results Found
         </h3>
-        <p className="text-sm text-[var(--muted-foreground)] mb-6 max-w-md mx-auto">
+        <p className="text-sm text-[var(--muted-foreground)] mb-4 max-w-md mx-auto">
           Try adjusting your search criteria or filters to find what you're looking for
         </p>
         <Button 
           variant="outline" 
           onClick={onClearFilters}
-          className="border-[var(--border)] hover:bg-[var(--card-bg)]"
+          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[120px] !bg-white dark:!bg-[var(--card-bg-inner)] !text-[var(--foreground)] !border-[var(--border)] hover:!bg-[var(--card-bg)] hover:!border-[var(--primary)]/30 hover:!text-[var(--primary)] !cursor-pointer"
         >
           Clear Filters
         </Button>
@@ -76,18 +80,18 @@ export function SearchResults({
 
   // Results found
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Sort & View Options */}
-      <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
+      <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
         <div className="text-sm font-medium text-[var(--foreground)]">
-          Found <span className="text-[var(--primary)] font-semibold">{searchResult.total}</span> result{searchResult.total !== 1 ? "s" : ""}
+          Found <span className="text-[var(--primary)] font-semibold text-base">{searchResult.total.toLocaleString('en-US')}</span> result{searchResult.total !== 1 ? "s" : ""}
           {searchQuery && (
-            <span className="text-[var(--muted-foreground)] font-normal">
-              {" "}for <span className="font-semibold text-[var(--foreground)]">"{searchQuery}"</span>
+            <span className="text-[var(--muted-foreground)] font-normal ml-2">
+              for <span className="font-semibold text-[var(--foreground)]">"{searchQuery}"</span>
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Select value={sortBy} onValueChange={(value) => {
             onSortChange(value as typeof sortBy);
             onPageChange(1);
@@ -106,7 +110,7 @@ export function SearchResults({
             onOrderChange(value as typeof orderBy);
             onPageChange(1);
           }}>
-            <SelectTrigger className="w-[120px] border-[var(--border)] bg-[var(--input-bg)] hover:bg-[var(--card-bg)] transition-colors">
+            <SelectTrigger className="w-[130px] border-[var(--border)] bg-[var(--input-bg)] hover:bg-[var(--card-bg)] transition-colors">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -129,11 +133,13 @@ export function SearchResults({
         ))}
 
         {/* Pagination */}
-        <SearchPagination
-          currentPage={searchResult.page}
-          totalPages={searchResult.total_pages}
-          onPageChange={onPageChange}
-        />
+        {searchResult.total_pages > 1 && (
+          <SearchPagination
+            currentPage={searchResult.page}
+            totalPages={searchResult.total_pages}
+            onPageChange={onPageChange}
+          />
+        )}
       </div>
     </div>
   );

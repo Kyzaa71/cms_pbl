@@ -328,7 +328,7 @@ export function AdvancedSearchModal({
             type="button"
             variant="outline"
             onClick={handleReset}
-            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[100px] !bg-white dark:!bg-[var(--card-bg-inner)] !text-orange-600 dark:!text-orange-500 !border-orange-500 dark:!border-orange-600 hover:!bg-orange-50 dark:hover:!bg-orange-500/10 hover:!border-orange-600 dark:hover:!border-orange-500 hover:!text-orange-700 dark:hover:!text-orange-400 !cursor-pointer"
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[100px] !bg-white dark:!bg-[var(--card-bg-inner)] !text-[var(--foreground)] !border-[var(--border)] hover:!bg-[var(--card-bg)] hover:!border-[var(--primary)]/30 hover:!text-[var(--primary)] !cursor-pointer"
           >
             Reset
           </Button>

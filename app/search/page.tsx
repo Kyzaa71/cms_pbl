@@ -3,7 +3,8 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Download, SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal, BarChart3 } from "lucide-react";
+import Link from "next/link";
 import {
   dummyEntries,
   searchEntries,
@@ -55,7 +56,10 @@ export default function SearchPage() {
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
     dummyEntries.forEach((entry) => {
-      entry.tags?.forEach((tag) => tagSet.add(tag));
+      const tags = entry.data?.tags;
+      if (Array.isArray(tags)) {
+        tags.forEach((tag: any) => tagSet.add(String(tag)));
+      }
     });
     return Array.from(tagSet).sort();
   }, []);
@@ -96,25 +100,12 @@ export default function SearchPage() {
     setCurrentPage(1);
   };
 
-  const handleExport = () => {
-    if (!searchResult) return;
-    
-    const dataStr = JSON.stringify(searchResult.entries, null, 2);
-    const dataBlob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `search-results-${new Date().toISOString().split("T")[0]}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleNavigateToEntry = (entry: any) => {
     // Navigate to appropriate detail page based on content type
-    if (entry.contentType.slug === "blog-post") {
-      router.push(`/content-management/${entry.contentType.slug}/${entry.id}`);
-    } else if (entry.contentType.slug === "product") {
-      router.push(`/content-management/${entry.contentType.slug}/${entry.id}`);
+    const contentTypeId = entry.contentTypeId || entry.contentType?.id;
+    if (contentTypeId) {
+      router.push(`/content-management/${contentTypeId}/entries/${entry.id}`);
     } else {
       // Default to workflow management
       router.push(`/workflow-management/${entry.id}`);
@@ -133,32 +124,31 @@ export default function SearchPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--foreground)] transition-colors">
+          <h1 className="text-3xl font-semibold text-[var(--foreground)] transition-colors">
             Search Content
           </h1>
-          <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
+          <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-2">
             Search and filter content entries across your CMS
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-3">
+          <Link href="/search/statistics">
+            <Button
+              variant="outline"
+              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[120px] !bg-white dark:!bg-[var(--card-bg-inner)] !text-[var(--foreground)] !border-[var(--border)] hover:!bg-[var(--card-bg)] hover:!border-[var(--primary)]/30 hover:!text-[var(--primary)] !cursor-pointer flex items-center gap-2"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Statistics
+            </Button>
+          </Link>
           <Button
             variant="outline"
             onClick={() => setShowAdvanced(true)}
-            className="flex items-center gap-2 border-[var(--border)] hover:bg-[var(--card-bg)] transition-colors"
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[140px] !bg-white dark:!bg-[var(--card-bg-inner)] !text-[var(--foreground)] !border-[var(--border)] hover:!bg-[var(--card-bg)] hover:!border-[var(--primary)]/30 hover:!text-[var(--primary)] !cursor-pointer flex items-center gap-2"
           >
             <SlidersHorizontal className="w-4 h-4" />
             Advanced Search
           </Button>
-          {searchResult && (
-            <Button
-              variant="outline"
-              onClick={handleExport}
-              className="flex items-center gap-2 border-[var(--border)] hover:bg-[var(--card-bg)] transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-          )}
         </div>
       </div>
 

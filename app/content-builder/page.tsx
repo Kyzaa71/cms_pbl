@@ -1,54 +1,291 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Eye,
+  Filter,
+  Layers,
+  FileText,
+  Settings,
+  Database,
+} from "lucide-react";
+import {
+  dummyContentTypes,
+  ContentType,
+  formatSlug,
+} from "@/components/content-builder/types";
+
 export default function ContentBuilderPage() {
+  const router = useRouter();
+  const [contentTypes] = useState<ContentType[]>(dummyContentTypes);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [seoFilter, setSeoFilter] = useState<string>("all");
+
+  // Filter content types
+  const filteredContentTypes = contentTypes.filter((ct) => {
+    const matchesSearch =
+      ct.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ct.slug.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSeo =
+      seoFilter === "all" ||
+      (seoFilter === "enabled" && ct.enableSeo) ||
+      (seoFilter === "disabled" && !ct.enableSeo);
+    return matchesSearch && matchesSeo;
+  });
+
+  // Stats
+  const stats = {
+    total: contentTypes.length,
+    withSeo: contentTypes.filter((ct) => ct.enableSeo).length,
+    totalFields: contentTypes.reduce((sum, ct) => sum + ct.fieldsCount, 0),
+    totalEntries: contentTypes.reduce((sum, ct) => sum + ct.entriesCount, 0),
+  };
+
+  // Handlers
+  const handleView = (contentTypeId: number) => {
+    router.push(`/content-builder/${contentTypeId}`);
+  };
+
+  const handleEdit = (contentTypeId: number) => {
+    router.push(`/content-builder/${contentTypeId}/edit`);
+  };
+
+  const handleManageEntries = (contentTypeId: number) => {
+    router.push(`/content-management?type=${contentTypeId}`);
+  };
+
+  const handleDelete = (contentType: ContentType) => {
+    if (contentType.entriesCount > 0) {
+      alert(
+        `Cannot delete "${contentType.name}" because it has ${contentType.entriesCount} entry${contentType.entriesCount !== 1 ? "s" : ""}. Please delete or reassign entries first.`
+      );
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete "${contentType.name}"?`)) {
+      // In a real app, this would call an API
+      console.log("Delete content type:", contentType.id);
+    }
+  };
+
   return (
-    <div className="p-6 bg-[var(--background)] text-[var(--foreground)] transition-colors duration-300 min-h-screen">
-      <div className="max-w-2xl">
-        {/* === CARD CONTENT BUILDER === */}
-        <div className="bg-gradient-to-br from-[var(--card-bg-gradient-1)] to-[var(--card-bg-gradient-2)] text-[var(--card-text)] rounded-lg p-6 mb-6 shadow-md transition-colors duration-300">
-          <h2 className="text-2xl font-bold mb-2">Content Builder</h2>
-          <p className="text-sm mb-4 opacity-90">Build Your First Layout</p>
-          <p className="text-sm opacity-90">
-            The Content Builder allows you to visually create and structure your page using flexible and customizable 
-            components. It supports various content types to suit your project need.
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--foreground)] transition-colors">
+            Content Builder
+          </h1>
+          <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
+            Create and manage content types, fields, and schemas for your CMS
           </p>
         </div>
+        <Link href="/content-builder/create">
+          <Button className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Create Content Type
+          </Button>
+        </Link>
+      </div>
 
-        {/* === DESCRIPTIONS === */}
-        <div className="space-y-4 mb-6">
-  <div>
-    <h3 className="font-semibold text-[var(--card-bg-mid)] mb-1">
-      Single Page
-    </h3>
-    <p className="text-sm text-[var(--foreground)]/80">
-      Use this when the layout connects to only one content entry. Suitable for pages like “Home” or “Profile”.
-    </p>
-  </div>
+      {/* Filters */}
+      <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)]">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+            <Input
+              placeholder="Search by name or slug..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)]"
+            />
+          </div>
 
-  <div>
-    <h3 className="font-semibold text-[var(--card-bg-mid)] mb-1">
-      Multiple Page
-    </h3>
-    <p className="text-sm text-[var(--foreground)]/80">
-      Designed for dynamic collections such as blog posts or product listings. One layout, multiple entries.
-    </p>
-  </div>
+          {/* SEO Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-[var(--muted-foreground)]" />
+            <Select value={seoFilter} onValueChange={setSeoFilter}>
+              <SelectTrigger className="w-[160px] border-[var(--border)] bg-[var(--input-bg)]">
+                <SelectValue placeholder="SEO Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="enabled">SEO Enabled</SelectItem>
+                <SelectItem value="disabled">SEO Disabled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </Card>
 
-  <div>
-    <h3 className="font-semibold text-[var(--card-bg-mid)] mb-1">
-      Component
-    </h3>
-    <p className="text-sm text-[var(--foreground)]/80">
-      Reusable UI blocks (text sections, images, etc.) that you can freely arrange and customize.
-    </p>
-  </div>
-</div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="p-4 bg-gradient-to-br from-[var(--primary)] to-[var(--primary-hover)] text-[var(--button-text)]">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Total Content Types</p>
+              <p className="text-2xl font-bold mt-1">{stats.total}</p>
+            </div>
+            <Layers className="w-8 h-8 opacity-80" />
+          </div>
+        </Card>
+        <Card className="p-4 bg-gradient-to-br from-[var(--success)] to-[var(--success-hover)] text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">With SEO</p>
+              <p className="text-2xl font-bold mt-1">{stats.withSeo}</p>
+            </div>
+            <FileText className="w-8 h-8 opacity-80" />
+          </div>
+        </Card>
+        <Card className="p-4 bg-gradient-to-br from-[var(--secondary)] to-purple-700 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Total Fields</p>
+              <p className="text-2xl font-bold mt-1">{stats.totalFields}</p>
+            </div>
+            <Database className="w-8 h-8 opacity-80" />
+          </div>
+        </Card>
+        <Card className="p-4 bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Total Entries</p>
+              <p className="text-2xl font-bold mt-1">{stats.totalEntries}</p>
+            </div>
+            <FileText className="w-8 h-8 opacity-80" />
+          </div>
+        </Card>
+      </div>
 
+      {/* Content Types Table */}
+      <div className="overflow-hidden border border-[var(--border)] rounded-md shadow-sm">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)] text-left">
+              <th className="py-3 px-4 font-semibold">Name</th>
+              <th className="py-3 px-4 font-semibold">Slug</th>
+              <th className="py-3 px-4 font-semibold">Fields</th>
+              <th className="py-3 px-4 font-semibold">Entries</th>
+              <th className="py-3 px-4 font-semibold">SEO</th>
+              <th className="py-3 px-4 font-semibold text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-[var(--card-bg-inner)]">
+            {filteredContentTypes.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="text-center py-8 text-[var(--muted-foreground)]"
+                >
+                  No content types found. Create your first content type to get started.
+                </td>
+              </tr>
+            ) : (
+              filteredContentTypes.map((contentType, index) => (
+                <tr
+                  key={contentType.id}
+                  className={`border-t border-[var(--border)] ${
+                    index % 2 === 0
+                      ? "bg-[var(--card-bg-inner)]"
+                      : "bg-[var(--card-bg)]"
+                  } hover:bg-[color-mix(in srgb, var(--card-bg) 80%, white)] transition`}
+                >
+                  {/* Name */}
+                  <td className="py-3 px-4">
+                    <div className="font-medium text-[var(--foreground)]">
+                      {contentType.name}
+                    </div>
+                  </td>
 
-        {/* === BUTTON === */}
-        <button className="w-full bg-[var(--card-bg-gradient-2)] hover:bg-[var(--card-bg-mid-alt)] text-[var(--card-text)] py-3 rounded-lg font-medium transition-colors">
-          Build Your Content
-        </button>
+                  {/* Slug */}
+                  <td className="py-3 px-4">
+                    <code className="text-xs bg-[var(--card-bg)] px-2 py-1 rounded text-[var(--muted-foreground)] border border-[var(--border)]">
+                      {contentType.slug}
+                    </code>
+                  </td>
+
+                  {/* Fields */}
+                  <td className="py-3 px-4 text-[var(--foreground)]">
+                    {contentType.fieldsCount}
+                  </td>
+
+                  {/* Entries */}
+                  <td className="py-3 px-4 text-[var(--foreground)]">
+                    {contentType.entriesCount}
+                  </td>
+
+                  {/* SEO */}
+                  <td className="py-3 px-4">
+                    {contentType.enableSeo ? (
+                      <Badge className="bg-[var(--success)] text-white border-none">
+                        Enabled
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-[var(--border)] text-[var(--muted-foreground)]">
+                        Disabled
+                      </Badge>
+                    )}
+                  </td>
+
+                  {/* Actions */}
+                  <td className="py-3 px-4 text-center">
+                    <div className="flex justify-center gap-3">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleView(contentType.id)}
+                        className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)]"
+                        title="View Details"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEdit(contentType.id)}
+                        className="text-yellow-600 hover:text-[color-mix(in srgb, yellow 80%, black)] dark:text-yellow-500"
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleManageEntries(contentType.id)}
+                        className="text-blue-600 hover:text-[color-mix(in srgb, blue 80%, black)] dark:text-blue-500"
+                        title="Manage Entries"
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(contentType)}
+                        className="text-[var(--danger)] hover:text-[color-mix(in srgb, var(--danger) 80%, black)]"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

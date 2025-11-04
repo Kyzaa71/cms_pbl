@@ -10,6 +10,7 @@ import {
   dummyContentTypes,
   type SearchFacets,
   type WorkflowStatus,
+  getStatusLabel,
 } from "./types";
 
 interface SearchFiltersProps {
@@ -43,7 +44,7 @@ export function SearchFilters({
     <div className="lg:col-span-1">
       <Card className="p-5 bg-[var(--card-bg-inner)] border border-[var(--border)] shadow-sm">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--border)]">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--border)]">
           <h3 className="text-base font-semibold text-[var(--foreground)] flex items-center gap-2">
             <Filter className="w-4 h-4 text-[var(--muted-foreground)]" />
             Filters
@@ -53,7 +54,7 @@ export function SearchFilters({
               variant="ghost"
               size="sm"
               onClick={onClearFilters}
-              className="text-xs h-7 px-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--card-bg)]"
+              className="text-xs h-7 px-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--card-bg)] font-medium"
             >
               <X className="w-3 h-3 mr-1" />
               Clear
@@ -85,15 +86,15 @@ export function SearchFilters({
                       }}
                       className="shrink-0"
                     />
-                    <span className="text-sm text-[var(--foreground)] font-medium truncate">
+                    <span className={`text-sm font-medium truncate ${isSelected ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
                       {type.name}
                     </span>
                   </div>
                   <Badge 
                     variant="outline" 
-                    className="text-xs font-medium shrink-0 ml-2 border-[var(--border)] bg-[var(--card-bg-inner)] text-[var(--muted-foreground)]"
+                    className={`text-xs font-medium shrink-0 ml-2 border-[var(--border)] bg-[var(--card-bg-inner)] text-[var(--muted-foreground)] px-2 py-0.5 ${isSelected ? 'border-[var(--primary)]/30 bg-[var(--primary)]/5' : ''}`}
                   >
-                    {count}
+                    {count.toLocaleString('en-US')}
                   </Badge>
                 </label>
               );
@@ -125,7 +126,7 @@ export function SearchFilters({
               <SelectItem value="draft">Draft ({facets.statuses.draft || 0})</SelectItem>
               <SelectItem value="in_review">In Review ({facets.statuses.in_review || 0})</SelectItem>
               <SelectItem value="ready_for_approval">
-                Ready ({facets.statuses.ready_for_approval || 0})
+                Ready for Approval ({facets.statuses.ready_for_approval || 0})
               </SelectItem>
               <SelectItem value="approved">Approved ({facets.statuses.approved || 0})</SelectItem>
               <SelectItem value="published">Published ({facets.statuses.published || 0})</SelectItem>
@@ -160,14 +161,14 @@ export function SearchFilters({
                       }}
                       className="shrink-0"
                     />
-                    <span className="text-sm text-[var(--foreground)] font-medium truncate">
+                    <span className={`text-sm font-medium truncate ${isSelected ? 'text-teal-600 dark:text-teal-400' : 'text-[var(--foreground)]'}`}>
                       {tag}
                     </span>
                   </label>
                 );
               })
             ) : (
-              <p className="text-xs text-[var(--muted-foreground)] p-2.5">
+              <p className="text-xs text-[var(--muted-foreground)] p-2.5 italic">
                 No tags available
               </p>
             )}

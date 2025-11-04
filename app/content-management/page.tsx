@@ -1,107 +1,147 @@
 "use client";
 
-import { useState } from "react";
-import { FileText, Edit3, Trash2, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Search, Layers, Database, FileText } from "lucide-react";
+import { dummyContentTypes } from "@/components/content-builder/types";
+import { getEntriesByContentType } from "@/components/content-management/types";
+import type { ContentType } from "@/components/content-builder/types";
 
-export default function ContentManagement() {
-  const getEditLink = (item: any) => {
-  if (item.type === "Single Page") return `/content-management/single-page/${item.id}`;
-  if (item.type === "Multiple Page") return `/content-management/multiple-page/${item.id}`;
-  return "#";
-};
-  const [contents] = useState([
-    {
-      id: 1,
-      title: "Home Page",
-      type: "Single Page",
-      updatedAt: "2025-10-15",
-    },
-    {
-      id: 2,
-      title: "Blog Articles",
-      type: "Multiple Page",
-      updatedAt: "2025-10-14",
-    },
-    {
-      id: 3,
-      title: "Blog 2",
-      type: "Multiple Page",
-      updatedAt: "2025-10-10",
-    },
-    
-  ]);
+export default function ContentManagementPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [contentTypes] = useState<ContentType[]>(dummyContentTypes);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Check if type parameter exists in URL, redirect to entries list
+  useEffect(() => {
+    const typeParam = searchParams.get("type");
+    if (typeParam) {
+      router.push(`/content-management/${typeParam}`);
+    }
+  }, [searchParams, router]);
+
+  // Filter content types
+  const filteredContentTypes = contentTypes.filter((ct) => {
+    const matchesSearch =
+      ct.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ct.slug.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
+  });
+
+  // Get entry counts for each content type
+  const getEntryCount = (contentTypeId: number) => {
+    return getEntriesByContentType(contentTypeId).length;
+  };
+
+  const handleSelectContentType = (contentTypeId: number) => {
+    router.push(`/content-management/${contentTypeId}`);
+  };
 
   return (
-    <div className="p-6 bg-[var(--background)] text-[var(--foreground)] min-h-screen transition-colors duration-300">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--foreground)]">
+          <h1 className="text-2xl font-semibold text-[var(--foreground)] transition-colors">
             Content Management
           </h1>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Kelola semua konten yang telah kamu buat dari Content Builder.
+          <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
+            Select a content type to manage its entries
           </p>
         </div>
-
-        {/* 🔗 Tombol Add New Content ke /content-builder */}
-        <Link
-          href="/content-builder"
-          className="flex items-center gap-2 bg-[color:var(--primary)] hover:bg-[color:var(--primary-hover)] text-[var(--button-text)] px-4 py-2 rounded-md transition"
-        >
-          <Plus className="w-4 h-4" />
-          Add New Content
+        <Link href="/content-builder">
+          <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-[var(--card-bg-inner)] border border-[var(--border)] hover:bg-[var(--hover)] transition-colors text-sm font-medium text-[var(--foreground)]">
+            <Layers className="w-4 h-4" />
+            Content Builder
+          </button>
         </Link>
       </div>
 
-      {/* Content Table */}
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card-bg)] shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--table-header-bg)] text-[var(--table-header-text)]">
-            <tr>
-              <th className="px-4 py-3 text-left">Title</th>
-              <th className="px-4 py-3 text-left">Type</th>
-              <th className="px-4 py-3 text-left">Last Updated</th>
-              <th className="px-4 py-3 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {contents.length > 0 ? (
-              contents.map((item) => (
-                <tr
-                  key={item.id}
-                  className="border-t border-[var(--border)] hover:bg-[var(--hover)] transition"
-                >
-                  <td className="px-4 py-3 font-medium">{item.title}</td>
-                  <td className="px-4 py-3">{item.type}</td>
-                  <td className="px-4 py-3">{item.updatedAt}</td>
-                  <td className="px-4 py-3 text-center flex justify-center gap-3">
-                    <Link
-                      href={getEditLink(item)}
-                      className="text-[color:var(--primary)] hover:opacity-80 transition"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </Link>
-                    <button className="text-[color:var(--danger)] hover:opacity-80 transition">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="text-center py-6 text-[var(--muted-foreground)]"
-                >
-                  Belum ada konten yang dibuat.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Search */}
+      <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)]">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+          <Input
+            placeholder="Search content types..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)]"
+          />
+        </div>
+      </Card>
+
+      {/* Content Types Grid */}
+      {filteredContentTypes.length === 0 ? (
+        <Card className="p-12 text-center border border-[var(--border)] bg-[var(--card-bg-inner)]">
+          <p className="text-[var(--muted-foreground)]">
+            No content types found. Create your first content type in{" "}
+            <Link href="/content-builder" className="text-[var(--primary)] hover:underline">
+              Content Builder
+            </Link>
+            .
+          </p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredContentTypes.map((contentType) => {
+            const entryCount = getEntryCount(contentType.id);
+            return (
+              <Card
+                key={contentType.id}
+                className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)] hover:border-[var(--primary)] transition-all cursor-pointer hover:shadow-md"
+                onClick={() => handleSelectContentType(contentType.id)}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-[var(--primary)]/10 rounded-lg">
+                      <Layers className="w-6 h-6 text-[var(--primary)]" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg text-[var(--foreground)]">
+                        {contentType.name}
+                      </h3>
+                      <code className="text-xs text-[var(--muted-foreground)] bg-[var(--card-bg)] px-2 py-1 rounded mt-1 inline-block">
+                        {contentType.slug}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                      <Database className="w-4 h-4" />
+                      <span>{contentType.fieldsCount} Fields</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                      <FileText className="w-4 h-4" />
+                      <span>{entryCount} Entries</span>
+                    </div>
+                  </div>
+
+                  {contentType.enableSeo && (
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--border)]">
+                      <span className="text-xs px-2 py-1 rounded bg-[var(--success)]/10 text-[var(--success)]">
+                        SEO Enabled
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-[var(--border)]">
+                  <button className="w-full text-left text-sm font-medium text-[var(--primary)] hover:underline">
+                    Manage Entries →
+                  </button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

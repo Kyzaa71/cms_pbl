@@ -18,16 +18,6 @@ export default function SettingsLayout({
       icon: User,
       href: "/settings/account",
     },
-    {
-      title: "API Integration",
-      icon: Code2,
-      href: "/settings/api",
-    },
-    {
-      title: "Workflow Approval",
-      icon: Workflow,
-      href: "/settings/workflow",
-    },
   ];
 
   return (

@@ -461,7 +461,7 @@ export function DashboardCards() {
                     Total Files
                   </p>
                   <p className="text-lg font-bold text-[var(--foreground)]">
-                    {mockMediaStats.totalFiles.toLocaleString()}
+                    {mockMediaStats.totalFiles.toLocaleString('en-US')}
                   </p>
                 </div>
                 <div className="p-3 rounded-md bg-[var(--card-bg)] border border-[var(--border)]">
@@ -528,4 +528,6 @@ export function DashboardCards() {
     </div>
   );
 }
+
+
 
