@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,53 +8,173 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Eye, Filter, FileText, Clock, AlertCircle } from "lucide-react";
-import {
-  getApprovalQueueEntries,
-  getApprovalQueueEntriesByContentType,
-  getApprovalQueueStats,
-  dummyContentTypes,
-  getInitials,
-  formatDate,
-  ContentEntry,
-} from "@/components/approval-queue/types";
+import { getInitials } from "@/components/workflow-management/types";
 import { StatusBadge } from "@/components/workflow-management/status-badge";
 import { ApprovalActions } from "@/components/approval-queue/approval-actions";
+import { workflowService } from "@/lib/services/workflow-service";
+import { contentService } from "@/lib/services/content-service";
+import { useContentTypes } from "@/hooks/use-content";
+import { useAuth } from "@/hooks/use-auth";
+import type { ContentEntry, User, WorkflowHistory } from "@/types/backend-models";
+import type { WorkflowStatus } from "@/components/workflow-management/types";
+import type { ContentType } from "@/types/backend-models";
 
 export default function ApprovalQueuePage() {
   const router = useRouter();
-  const [entries] = useState<ContentEntry[]>(getApprovalQueueEntries());
+  const { data: contentTypes } = useContentTypes();
+  const { user, getCurrentUser } = useAuth();
+  const [entries, setEntries] = useState<ContentEntry[]>([]);
+  const [approvedEntries, setApprovedEntries] = useState<ContentEntry[]>([]);
+  const [publishedEntries, setPublishedEntries] = useState<ContentEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [pendingStats, setPendingStats] = useState<{ total: number; byContentType: { contentType: ContentType; count: number }[] }>({ total: 0, byContentType: [] });
+  const [creators, setCreators] = useState<Record<number, User>>({});
+  const [actionUsers, setActionUsers] = useState<Record<number, User | null>>({});
+  const [publishedTotal, setPublishedTotal] = useState<number>(0);
 
-  // Filter entries
-  const filteredEntries = entries.filter((entry) => {
-    const matchesSearch =
-      entry.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesContentType =
-      contentTypeFilter === "all" ||
-      entry.contentTypeId.toString() === contentTypeFilter;
+  useEffect(() => {
+    if (!user) {
+      void getCurrentUser();
+    }
+  }, [user, getCurrentUser]);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!contentTypes || contentTypes.length === 0) return;
+      const targetStatuses = ["ready_for_approval", "approved", "published"] as const;
+      const fetchStatus = async (status: string, ctId: number) => {
+        const wf = await workflowService.entriesByStatus(ctId, status);
+        if (wf && wf.length > 0) return wf;
+        const { entries: ce } = await contentService.listEntries(ctId, { status });
+        return ce;
+      };
+      const pending: ContentEntry[] = [];
+      const approved: ContentEntry[] = [];
+      const published: ContentEntry[] = [];
+      const ctIds = contentTypeFilter !== "all" ? [parseInt(contentTypeFilter)] : (contentTypes || []).map((ct) => ct.id);
+      for (const id of ctIds) {
+        const [readyItems, approvedItems, publishedItems] = await Promise.all([
+          fetchStatus("ready_for_approval", id),
+          fetchStatus("approved", id),
+          fetchStatus("published", id),
+        ]);
+        pending.push(...readyItems);
+        approved.push(...approvedItems);
+        published.push(...publishedItems);
+      }
+      setEntries(pending);
+      setApprovedEntries(approved);
+      setPublishedEntries(published);
+
+      const byCT: { contentType: ContentType; count: number }[] = [];
+      let total = 0;
+      for (const ct of contentTypes) {
+        const ready = await workflowService.entriesByStatus(ct.id, "ready_for_approval");
+        const count = ready.length;
+        byCT.push({ contentType: ct, count });
+        total += count;
+      }
+      setPendingStats({ total, byContentType: byCT });
+
+      setPublishedTotal(published.length);
+    };
+    load();
+  }, [contentTypes, contentTypeFilter, statusFilter]);
+
+  const sourceEntries = statusFilter === "pending" ? entries : statusFilter === "approved" ? approvedEntries : statusFilter === "published" ? publishedEntries : [...entries, ...approvedEntries, ...publishedEntries];
+  const filteredEntries = sourceEntries.filter((entry) => {
+    const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+    const cands = ["title", "judul", "name", "meta_title"] as const;
+    let title = "";
+    for (const key of cands) {
+      const v = obj[key];
+      if (typeof v === "string" && v.trim().length > 0) { title = v; break; }
+    }
+    if (!title) {
+      for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) { title = v; break; } }
+    }
+    if (!title) title = `Entry #${entry.id}`;
+    const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesContentType = contentTypeFilter === "all" || String(entry.content_type_id) === contentTypeFilter;
     return matchesSearch && matchesContentType;
   });
 
-  // Stats
-  const stats = getApprovalQueueStats();
+  useEffect(() => {
+    const fillCreators = async () => {
+      const need = filteredEntries.filter((e) => !e.creator).map((e) => e.id).filter((id) => !(id in creators));
+      if (need.length === 0) return;
+      const results = await Promise.allSettled(need.map((id) => contentService.getEntry(id)));
+      const next: Record<number, User> = { ...creators };
+      results.forEach((res, idx) => {
+        const id = need[idx]!;
+        if (res.status === "fulfilled" && res.value?.creator) {
+          next[id] = res.value.creator as User;
+        }
+      });
+      setCreators(next);
+    };
+    fillCreators();
+  }, [filteredEntries]);
+
+  useEffect(() => {
+    const fillActionUsers = async () => {
+      const needIds = filteredEntries.map((e) => e.id).filter((id) => !(id in actionUsers));
+      if (needIds.length === 0) return;
+      const histories = await Promise.allSettled(needIds.map((id) => workflowService.history(id)));
+      const next: Record<number, User | null> = { ...actionUsers };
+      for (let i = 0; i < histories.length; i++) {
+        const res = histories[i]!;
+        const id = needIds[i]!;
+        if (res.status === "fulfilled") {
+          const hs = res.value as WorkflowHistory[];
+          const entry = filteredEntries.find((e) => e.id === id);
+          const targetStatus = entry?.status;
+          const match = hs.slice().reverse().find((h) => h.to_status === targetStatus) || (hs.length > 0 ? hs[hs.length - 1] : undefined);
+          let actor: User | null = (match && match.user) ? match.user : null;
+          next[id] = actor;
+        } else {
+          next[id] = null;
+        }
+      }
+      setActionUsers(next);
+    };
+    fillActionUsers();
+  }, [filteredEntries]);
+
+  const publishedCount = publishedTotal;
 
   const handleView = (entryId: number) => {
     router.push(`/workflow-management/${entryId}`);
   };
 
-  const handleApprove = (entryId: number, comment?: string) => {
-    console.log("Approve entry:", entryId, comment);
-    // In real app, this would call API: POST /workflow/entries/:entry_id/approve
-    // Entry status would change to "approved" and be removed from queue
+  const handleApprove = async (entryId: number, comment?: string) => {
+    const updated = await workflowService.approve(entryId, { comment });
+    setEntries((prev) => {
+      const exists = prev.some((e) => e.id === updated.id);
+      if (exists) return prev.map((e) => (e.id === updated.id ? updated : e));
+      return [updated, ...prev];
+    });
     alert(`Entry ${entryId} approved${comment ? ` with comment: ${comment}` : ""}`);
   };
 
-  const handleReject = (entryId: number, comment: string) => {
-    console.log("Reject entry:", entryId, comment);
-    // In real app, this would call API: POST /workflow/entries/:entry_id/reject
-    // Entry status would change to "rejected" and be removed from queue
+  const handleReject = async (entryId: number, comment: string) => {
+    const updated = await workflowService.reject(entryId, { comment });
+    setEntries((prev) => prev.filter((e) => e.id !== updated.id));
     alert(`Entry ${entryId} rejected with reason: ${comment}`);
+  };
+
+  const handlePublish = async (entryId: number, comment?: string) => {
+    const updated = await workflowService.publish(entryId, { comment });
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    alert(`Entry ${entryId} published${comment ? ` with comment: ${comment}` : ""}`);
+  };
+
+  const handleBackToDraft = async (entryId: number) => {
+    const updated = await workflowService.changeStatus(entryId, { status: "draft" });
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    alert(`Entry ${entryId} moved back to draft`);
   };
 
   return (
@@ -66,7 +186,7 @@ export default function ApprovalQueuePage() {
             Approval Queue
           </h1>
           <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
-            Review and approve content entries ready for approval
+            Kelola entri dari draft hingga published, dan lakukan approval
           </p>
         </div>
         <Button
@@ -80,30 +200,25 @@ export default function ApprovalQueuePage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="p-4 bg-gradient-to-br from-orange-500 to-orange-600 text-white">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm opacity-90">Pending Approvals</p>
-              <p className="text-2xl font-bold mt-1">{stats.total}</p>
+              <p className="text-2xl font-bold mt-1">{pendingStats.total}</p>
             </div>
             <Clock className="w-8 h-8 opacity-80" />
           </div>
         </Card>
-        {stats.byContentType.map((stat) => (
-          <Card
-            key={stat.contentType.id}
-            className="p-4 bg-gradient-to-br from-[var(--primary)] to-[var(--primary-hover)] text-[var(--button-text)]"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">{stat.contentType.name}</p>
-                <p className="text-2xl font-bold mt-1">{stat.count}</p>
-              </div>
-              <FileText className="w-8 h-8 opacity-80" />
+        <Card className="p-4 bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Published</p>
+              <p className="text-2xl font-bold mt-1">{publishedCount}</p>
             </div>
-          </Card>
-        ))}
+            <FileText className="w-8 h-8 opacity-80" />
+          </div>
+        </Card>
       </div>
 
       {/* Filters */}
@@ -132,11 +247,26 @@ export default function ApprovalQueuePage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Content Types</SelectItem>
-                {dummyContentTypes.map((type) => (
+                {(contentTypes || []).map((type) => (
                   <SelectItem key={type.id} value={type.id.toString()}>
                     {type.name}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {/* Status Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-[var(--muted-foreground)]" />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px] border-[var(--border)] bg-[var(--input-bg)]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Approvals</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="published">Published</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -148,14 +278,15 @@ export default function ApprovalQueuePage() {
         <div className="overflow-hidden border border-[var(--border)] rounded-md shadow-sm bg-[var(--card-bg-inner)]">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)] text-left">
-                <th className="py-3 px-4 font-medium">Title</th>
-                <th className="py-3 px-4 font-medium">Content Type</th>
-                <th className="py-3 px-4 font-medium">Status</th>
-                <th className="py-3 px-4 font-medium">Creator</th>
-                <th className="py-3 px-4 font-medium">Submitted</th>
-                <th className="py-3 px-4 font-medium text-center">Actions</th>
-              </tr>
+            <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)] text-left">
+              <th className="py-3 px-4 font-medium">Title</th>
+              <th className="py-3 px-4 font-medium">Content Type</th>
+              <th className="py-3 px-4 font-medium">Status</th>
+              <th className="py-3 px-4 font-medium">Creator</th>
+              <th className="py-3 px-4 font-medium">Submitted</th>
+              <th className="py-3 px-4 font-medium">Action By</th>
+              <th className="py-3 px-4 font-medium text-center">Actions</th>
+            </tr>
             </thead>
             <tbody>
               {filteredEntries.map((entry, index) => (
@@ -169,12 +300,25 @@ export default function ApprovalQueuePage() {
                 >
                   <td className="py-3 px-4">
                     <p className="font-medium text-[var(--foreground)]">
-                      {entry.title}
+                      {(() => {
+                        const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+                        const cands = ["title", "judul", "name", "meta_title"] as const;
+                        for (const key of cands) {
+                          const v = obj[key];
+                          if (typeof v === "string" && v.trim().length > 0) return v as string;
+                        }
+                        for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) return v; }
+                        return `Entry #${entry.id}`;
+                      })()}
                     </p>
                   </td>
                   <td className="py-3 px-4">
                     <span className="text-[var(--muted-foreground)]">
-                      {entry.contentType.name}
+                      {(() => {
+                        const id = entry.content_type_id;
+                        const ct = (contentTypes || []).find((c) => c.id === id);
+                        return ct ? ct.name : "";
+                      })()}
                     </span>
                   </td>
                   <td className="py-3 px-4">
@@ -184,21 +328,36 @@ export default function ApprovalQueuePage() {
                     <div className="flex items-center gap-2">
                       <Avatar className="w-8 h-8">
                         <AvatarFallback className="text-xs">
-                          {getInitials(entry.creator.name)}
+                          {(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            const nm = (user?.name || "").replace(/[^A-Za-z ]/g, "");
+                            return getInitials(nm || "Unknown");
+                          })()}
                         </AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="text-sm text-[var(--foreground)]">
-                          {entry.creator.name}
-                        </p>
-                        <p className="text-xs text-[var(--muted-foreground)]">
-                          {entry.creator.email}
+                          {(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            const name = user?.name || "Unknown";
+                            const email = user?.email || "";
+                            return email ? `${name} - ${email}` : String(name);
+                          })()}
                         </p>
                       </div>
                     </div>
                   </td>
                   <td className="py-3 px-4 text-[var(--muted-foreground)]">
-                    {formatDate(entry.updatedAt)}
+                    {new Date(entry.updated_at || Date.now()).toLocaleDateString()}
+                  </td>
+                  <td className="py-3 px-4">
+                    {(() => {
+                      const actor = actionUsers[entry.id];
+                      if (!actor) return "-";
+                      const name = actor.name || "";
+                      const email = actor.email || "";
+                      return email ? `${name} - ${email}` : name || "-";
+                    })()}
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex items-center justify-center gap-2">
@@ -211,12 +370,27 @@ export default function ApprovalQueuePage() {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <ApprovalActions
-                        entryId={entry.id}
-                        entryTitle={entry.title}
-                        onApprove={handleApprove}
-                        onReject={handleReject}
-                      />
+                      {(entry.status === "ready_for_approval" || entry.status === "approved") && (
+                        <ApprovalActions
+                          entryId={entry.id}
+                          entryTitle={(() => {
+                            const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+                            const cands = ["title", "judul", "name", "meta_title"] as const;
+                            for (const key of cands) {
+                              const v = obj[key];
+                              if (typeof v === "string" && v.trim().length > 0) return v as string;
+                            }
+                            for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) return v; }
+                            return `Entry #${entry.id}`;
+                          })()}
+                          onApprove={handleApprove}
+                          onReject={handleReject}
+                          status={entry.status as WorkflowStatus}
+                          onPublish={handlePublish}
+                          onBackToDraft={handleBackToDraft}
+                        />
+                      )}
+                      
                     </div>
                   </td>
                 </tr>
@@ -228,7 +402,7 @@ export default function ApprovalQueuePage() {
         <Card className="p-12 text-center bg-[var(--card-bg-inner)] border border-[var(--border)]">
           <AlertCircle className="w-12 h-12 mx-auto text-[var(--muted-foreground)] mb-4" />
           <h3 className="text-lg font-semibold text-[var(--foreground)] mb-2">
-            No entries pending approval
+            {statusFilter === "pending" ? "No entries pending approval" : "No published entries"}
           </h3>
           <p className="text-sm text-[var(--muted-foreground)]">
             All entries have been reviewed or there are no entries ready for approval at this time.
@@ -238,4 +412,3 @@ export default function ApprovalQueuePage() {
     </div>
   );
 }
-

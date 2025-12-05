@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "next-themes";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Sun, Moon } from "lucide-react";
 
 export default function ForgotPasswordPage() {
+  const { forgotPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -20,11 +22,12 @@ export default function ForgotPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    // Redirect to check-email page
-    window.location.href = '/auth/check-email';
+    try {
+      await forgotPassword(email);
+      window.location.href = "/auth/check-email";
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

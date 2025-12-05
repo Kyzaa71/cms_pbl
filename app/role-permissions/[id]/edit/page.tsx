@@ -1,27 +1,57 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { RoleForm } from "@/components/role-permissions/role-form";
-import { dummyRoles, Role, Permission } from "@/components/role-permissions/types";
+import type { Role as UIRole, Permission as UIPermission } from "@/components/role-permissions/types";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { roleService } from "@/lib/services/user-service";
+import type { Role as BackendRole, Permission as BackendPermission } from "@/types/backend-models";
 
 export default function EditRolePage() {
   const params = useParams();
   const router = useRouter();
   const roleId = params?.id ? parseInt(params.id as string) : null;
+  const [role, setRole] = useState<UIRole | null>(null);
+  useEffect(() => {
+    if (!roleId) return;
+    roleService
+      .getById(roleId)
+      .then((r: BackendRole) => {
+        const perms: UIPermission[] = (r.permissions || []).map((p: BackendPermission) => ({
+          id: p.id,
+          roleId: p.role_id,
+          module: p.module as "ContentEntry" | "Media" | "SEO",
+          action: p.action as "create" | "read" | "update" | "delete" | "approve",
+          fieldScope: p.field_scope as "all" | "seo_only" | "non_seo_only" | "custom",
+          allowedFields: Array.isArray(p.allowed_fields) ? (p.allowed_fields as string[]) : undefined,
+          deniedFields: Array.isArray(p.denied_fields) ? (p.denied_fields as string[]) : undefined,
+          contentTypeIds: Array.isArray(p.content_type_ids) ? (p.content_type_ids as number[]) : undefined,
+        }));
+        setRole({ id: r.id, name: r.name, description: r.description, permissions: perms, createdAt: r.created_at, updatedAt: r.updated_at });
+      })
+      .catch(() => setRole(null));
+  }, [roleId]);
 
-  const role = roleId ? dummyRoles.find((r) => r.id === roleId) : null;
-
-  const handleSave = (data: {
-    name: string;
-    description: string;
-    permissions: Permission[];
-  }) => {
-    // In a real app, this would call an API
-    // For now, just navigate back to the detail page
-    console.log("Update role:", roleId, data);
-    router.push(`/role-permissions/${roleId}`);
+  const handleSave = (data: { name: string; description: string; permissions: UIPermission[] }) => {
+    if (!roleId) return;
+    const payload = {
+      name: data.name,
+      description: data.description,
+      permissions: data.permissions.map((p) => ({
+        module: p.module,
+        action: p.action,
+        field_scope: p.fieldScope,
+        allowed_fields: p.allowedFields,
+        denied_fields: p.deniedFields,
+        content_type_ids: p.contentTypeIds,
+      })),
+    };
+    roleService
+      .update(roleId, payload)
+      .then(() => router.push(`/role-permissions/${roleId}`))
+      .catch((e) => alert(e?.message || "Failed to update role"));
   };
 
   if (!role) {
@@ -63,4 +93,3 @@ export default function EditRolePage() {
     </div>
   );
 }
-

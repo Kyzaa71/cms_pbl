@@ -8,17 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, X } from "lucide-react";
-import {
-  getContentTypeById,
-  ContentType,
-  formatSlug,
-} from "@/components/content-builder/types";
+import { ContentType } from "@/types/backend-models";
+import { useContentType, contentActions } from "@/hooks/use-content";
+import { useAuth } from "@/hooks/use-auth";
+
+function formatSlug(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
 
 export default function EditContentTypePage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const contentTypeId = parseInt(params.id as string);
-
+  const { data: fetchedCT } = useContentType(contentTypeId);
   const [contentType, setContentType] = useState<ContentType | undefined>();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -26,14 +29,13 @@ export default function EditContentTypePage() {
   const [autoGenerateSlug, setAutoGenerateSlug] = useState(false);
 
   useEffect(() => {
-    const ct = getContentTypeById(contentTypeId);
-    if (ct) {
-      setContentType(ct);
-      setName(ct.name);
-      setSlug(ct.slug);
-      setEnableSeo(ct.enableSeo);
+    if (fetchedCT) {
+      setContentType(fetchedCT);
+      setName(fetchedCT.name);
+      setSlug(fetchedCT.slug);
+      setEnableSeo(!!fetchedCT.enable_seo);
     }
-  }, [contentTypeId]);
+  }, [fetchedCT]);
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -42,22 +44,13 @@ export default function EditContentTypePage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!name.trim() || !slug.trim()) {
       alert("Name and slug are required");
       return;
     }
-
-    // In a real app, this would call: PUT /content/types/:id
-    console.log("Update content type:", {
-      id: contentTypeId,
-      name,
-      slug,
-      enable_seo: enableSeo,
-    });
-
+    await contentActions.updateContentType(contentTypeId, { name, slug, enable_seo: enableSeo });
     router.push(`/content-builder/${contentTypeId}`);
   };
 
@@ -76,6 +69,9 @@ export default function EditContentTypePage() {
       </div>
     );
   }
+
+  const roleName = user?.role?.name || "";
+  const canEdit = roleName === "admin";
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -105,6 +101,11 @@ export default function EditContentTypePage() {
         </div>
 
         {/* Form */}
+        {!canEdit ? (
+          <div className="p-4 bg-[var(--card-bg)] rounded-lg border border-[var(--border)] text-sm text-[var(--muted-foreground)]">
+            no permission
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Name */}
           <div>
@@ -179,6 +180,7 @@ export default function EditContentTypePage() {
             </Button>
           </div>
         </form>
+        )}
       </Card>
     </div>
   );

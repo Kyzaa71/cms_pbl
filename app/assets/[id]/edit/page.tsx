@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
-import { getMediaById, dummyFolders } from "@/components/media-assets/types";
+import { mediaService } from "@/lib/services/media-service";
 import { MediaEditForm } from "@/components/media-assets/media-edit-form";
+import type { MediaFile, MediaFolder } from "@/types/backend-models";
 
 export default function EditMediaPage() {
   const params = useParams();
@@ -13,8 +15,13 @@ export default function EditMediaPage() {
   const mediaId = params?.id
     ? parseInt(Array.isArray(params.id) ? params.id[0] : params.id)
     : null;
-
-  const media = mediaId ? getMediaById(mediaId) : null;
+  const [media, setMedia] = useState<MediaFile | null>(null);
+  const [folders, setFolders] = useState<MediaFolder[]>([]);
+  useEffect(() => {
+    if (!mediaId) return;
+    mediaService.getById(mediaId).then(setMedia).catch(() => setMedia(null));
+    mediaService.listFolders().then(setFolders).catch(() => setFolders([]));
+  }, [mediaId]);
 
   const handleSave = (data: {
     alt: string;
@@ -22,9 +29,12 @@ export default function EditMediaPage() {
     folder: string;
     tags: string[];
   }) => {
-    console.log("Update media:", mediaId, data);
-    // In real app, this would call API: PUT /media/:id
-    router.push(`/assets/${mediaId}`);
+    if (!mediaId) return;
+    mediaService.update(mediaId, data).then(() => {
+      router.push(`/assets/${mediaId}`);
+    }).catch((e) => {
+      alert(e?.message || "Failed to update media");
+    });
   };
 
   const handleCancel = () => {
@@ -64,12 +74,14 @@ export default function EditMediaPage() {
       {/* Edit Form */}
       <div className="max-w-2xl">
         <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
-          <MediaEditForm
-            media={media}
-            folders={dummyFolders}
-            onSave={handleSave}
-            onCancel={handleCancel}
-          />
+          {media && (
+            <MediaEditForm
+              media={media}
+              folders={folders}
+              onSave={handleSave}
+              onCancel={handleCancel}
+            />
+          )}
         </Card>
       </div>
     </div>

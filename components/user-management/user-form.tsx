@@ -13,7 +13,7 @@ interface UserFormProps {
   user?: User | null;
   roles: Role[];
   mode: "create" | "edit";
-  onSave: (data: Partial<User>) => void;
+  onSave: (data: Partial<User> & { password?: string }) => void;
 }
 
 export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
@@ -53,6 +53,7 @@ export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
       email: formData.email,
       roleId: formData.roleId,
       status: formData.status,
+      ...(mode === "create" ? { password: formData.password } : {}),
     });
   };
 

@@ -6,8 +6,10 @@ import { Card } from "@/components/ui/card";
 import { X, Upload, Check } from "lucide-react";
 import { MediaGrid } from "@/components/media-assets/media-grid";
 import { MediaFilters } from "@/components/media-assets/media-filters";
-import { MediaFile, dummyMediaFiles, filterMediaByType, searchMedia, filterMediaByFolder, dummyFolders } from "@/components/media-assets/types";
+import { filterMediaByType, searchMedia, filterMediaByFolder } from "@/components/media-assets/types";
+import type { MediaFile, MediaFolder } from "@/types/backend-models";
 import { useRouter } from "next/navigation";
+import { mediaService } from "@/lib/services/media-service";
 
 interface MediaSelectorModalProps {
   isOpen: boolean;
@@ -29,9 +31,22 @@ export function MediaSelectorModal({
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [folderFilter, setFolderFilter] = useState<string>("all");
   const [selectedMediaId, setSelectedMediaId] = useState<number | undefined>(currentMediaId);
+  const [media, setMedia] = useState<MediaFile[]>([]);
+  const [folders, setFolders] = useState<MediaFolder[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  // Filter media
-  let filteredMedia = dummyMediaFiles;
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+    Promise.all([mediaService.list({ page: 1, limit: 200 }), mediaService.listFolders()])
+      .then(([list, f]) => {
+        setMedia(list.media);
+        setFolders(f);
+      })
+      .finally(() => setLoading(false));
+  }, [isOpen]);
+
+  let filteredMedia = media;
   filteredMedia = filterMediaByType(filteredMedia, typeFilter);
   filteredMedia = folderFilter !== "all" ? filterMediaByFolder(filteredMedia, folderFilter) : filteredMedia;
   filteredMedia = searchMedia(filteredMedia, searchQuery);
@@ -65,9 +80,9 @@ export function MediaSelectorModal({
 
   const handleConfirm = () => {
     if (selectedMediaId) {
-      const media = dummyMediaFiles.find((m) => m.id === selectedMediaId);
-      if (media) {
-        onSelect(media);
+      const selected = media.find((m) => m.id === selectedMediaId);
+      if (selected) {
+        onSelect(selected);
         onClose();
       }
     }
@@ -80,7 +95,7 @@ export function MediaSelectorModal({
 
   if (!isOpen) return null;
 
-  const selectedMedia = selectedMediaId ? dummyMediaFiles.find((m) => m.id === selectedMediaId) : undefined;
+  const selectedMedia = selectedMediaId ? media.find((m) => m.id === selectedMediaId) : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -120,7 +135,7 @@ export function MediaSelectorModal({
             onTypeFilterChange={setTypeFilter}
             folderFilter={folderFilter}
             onFolderFilterChange={setFolderFilter}
-            folders={dummyFolders}
+            folders={folders}
           />
         </div>
 

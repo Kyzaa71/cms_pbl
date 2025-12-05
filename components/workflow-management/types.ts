@@ -34,7 +34,7 @@ export interface ContentEntry {
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface WorkflowHistory {
@@ -416,20 +416,25 @@ export const dummyAssignments: WorkflowAssignment[] = [
 export const dummyTransitions: WorkflowTransition[] = [
   { id: 1, fromStatus: "draft", toStatus: "in_review", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
   { id: 2, fromStatus: "draft", toStatus: "in_review", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 3, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 4, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 5, fromStatus: "in_review", toStatus: "rejected", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 6, fromStatus: "in_review", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 7, fromStatus: "in_review", toStatus: "draft", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 8, fromStatus: "in_review", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 9, fromStatus: "ready_for_approval", toStatus: "approved", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 10, fromStatus: "ready_for_approval", toStatus: "approved", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 11, fromStatus: "ready_for_approval", toStatus: "rejected", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 12, fromStatus: "ready_for_approval", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 13, fromStatus: "approved", toStatus: "published", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 14, fromStatus: "approved", toStatus: "published", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 15, fromStatus: "rejected", toStatus: "draft", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 16, fromStatus: "rejected", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 3, fromStatus: "draft", toStatus: "rejected", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 4, fromStatus: "draft", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 5, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  
+  { id: 6, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 7, fromStatus: "in_review", toStatus: "rejected", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  
+  { id: 8, fromStatus: "in_review", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 9, fromStatus: "in_review", toStatus: "draft", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  
+  { id: 10, fromStatus: "in_review", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 11, fromStatus: "ready_for_approval", toStatus: "approved", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 12, fromStatus: "ready_for_approval", toStatus: "approved", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 13, fromStatus: "ready_for_approval", toStatus: "rejected", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 14, fromStatus: "ready_for_approval", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 15, fromStatus: "approved", toStatus: "published", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 16, fromStatus: "approved", toStatus: "published", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 17, fromStatus: "rejected", toStatus: "draft", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 18, fromStatus: "rejected", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
 ];
 
 // Helper Functions

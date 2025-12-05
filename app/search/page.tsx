@@ -1,17 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SlidersHorizontal, BarChart3 } from "lucide-react";
 import Link from "next/link";
-import {
-  dummyEntries,
-  searchEntries,
-  getSearchFacets,
-  type SearchParams,
-  type WorkflowStatus,
-} from "@/components/search/types";
+import { type SearchParams, type WorkflowStatus } from "@/components/search/types";
+import { searchService } from "@/lib/services/search-service";
+import type { ContentEntry as BackendEntry } from "@/types/backend-models";
+import type { ContentEntry as UIEntry } from "@/components/content-management/types";
 import { AdvancedSearchModal } from "@/components/search/advanced-search-modal";
 import { SearchBar } from "@/components/search/search-bar";
 import { SearchFilters } from "@/components/search/search-filters";
@@ -41,28 +38,87 @@ export default function SearchPage() {
     limit: 10,
   }), [searchQuery, contentTypeFilter, statusFilter, tagsFilter, sortBy, orderBy, currentPage]);
 
-  // Perform search
-  const searchResult = useMemo(() => {
-    if (!searchQuery && contentTypeFilter.length === 0 && !statusFilter && tagsFilter.length === 0) {
-      return null; // Don't search if no criteria
-    }
-    return searchEntries(dummyEntries, searchParams);
-  }, [searchQuery, contentTypeFilter, statusFilter, tagsFilter, searchParams]);
+  const [searchResult, setSearchResult] = useState<{
+    entries: UIEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+    query?: string;
+  } | null>(null);
 
-  // Get facets from all entries
-  const facets = useMemo(() => getSearchFacets(dummyEntries), []);
+  useEffect(() => {
+    const shouldSearch = Boolean(searchQuery || contentTypeFilter.length > 0 || statusFilter || tagsFilter.length > 0);
+    if (!shouldSearch) {
+      setSearchResult(null);
+      return;
+    }
+    const load = async () => {
+      try {
+        const isAdvanced = contentTypeFilter.length > 0 || statusFilter || tagsFilter.length > 0 || sortBy !== "created_at";
+        const resp = isAdvanced
+          ? await searchService.advanced({
+              query: searchQuery || undefined,
+              content_type_ids: contentTypeFilter.length > 0 ? contentTypeFilter : undefined,
+              status: statusFilter || undefined,
+              tags: tagsFilter.length > 0 ? tagsFilter : undefined,
+              sort_by: sortBy,
+              order_by: orderBy,
+              page: currentPage,
+              limit: 10,
+            })
+          : await searchService.fullText({ q: searchQuery || "", page: currentPage, limit: 10 });
+
+        const entries: UIEntry[] = (resp.entries as BackendEntry[]).map((e) => ({
+          id: e.id,
+          contentTypeId: e.content_type_id,
+          contentType: e.content_type ? { id: e.content_type.id, name: e.content_type.name, description: e.content_type.description } : undefined,
+          data: typeof e.data === "object" && e.data !== null ? (e.data as Record<string, unknown>) : {},
+          status: e.status as any,
+          createdAt: e.created_at,
+          updatedAt: e.updated_at,
+          publishedAt: (e as any).published_at,
+          createdBy: e.created_by,
+          updatedBy: e.updated_by,
+          creator: e.creator,
+          updater: e.updater,
+        }));
+        const total = (resp.meta?.total as number) ?? entries.length;
+        const page = (resp.meta?.page as number) ?? currentPage;
+        const limit = (resp.meta?.limit as number) ?? 10;
+        const total_pages = (resp.meta?.total_pages as number) ?? Math.ceil(total / limit);
+        setSearchResult({ entries, total, page, limit, total_pages, query: searchQuery });
+      } catch (e) {
+        setSearchResult({ entries: [], total: 0, page: 1, limit: 10, total_pages: 0, query: searchQuery });
+      }
+    };
+    load();
+  }, [searchQuery, contentTypeFilter, statusFilter, tagsFilter, sortBy, orderBy, currentPage]);
+
+  const [facets, setFacets] = useState<{ content_types: Record<string, number>; statuses: Record<string, number> } | null>(null);
+  useEffect(() => {
+    const loadFacets = async () => {
+      try {
+        const f = await searchService.facets({ q: searchQuery || undefined, content_type_ids: contentTypeFilter.length ? contentTypeFilter : undefined });
+        setFacets({ content_types: f.content_types || {}, statuses: f.statuses || {} });
+      } catch {
+        setFacets(null);
+      }
+    };
+    loadFacets();
+  }, [searchQuery, contentTypeFilter]);
 
   // Get all unique tags
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
-    dummyEntries.forEach((entry) => {
-      const tags = entry.data?.tags;
+    (searchResult?.entries || []).forEach((entry) => {
+      const tags = entry.data?.tags as unknown;
       if (Array.isArray(tags)) {
-        tags.forEach((tag: any) => tagSet.add(String(tag)));
+        (tags as unknown[]).forEach((tag) => tagSet.add(String(tag)));
       }
     });
     return Array.from(tagSet).sort();
-  }, []);
+  }, [searchResult]);
 
   const handleClearFilters = () => {
     setSearchQuery("");
@@ -173,7 +229,7 @@ export default function SearchPage() {
             statusFilter={statusFilter}
             tagsFilter={tagsFilter}
             allTags={allTags}
-            facets={facets}
+            facets={facets || { content_types: {}, statuses: {} }}
             hasActiveFilters={hasActiveFilters}
             onToggleContentType={handleToggleContentType}
             onStatusChange={handleStatusChange}

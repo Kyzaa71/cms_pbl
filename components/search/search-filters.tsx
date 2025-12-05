@@ -6,12 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Filter, FileText, Tag, X } from "lucide-react";
-import {
-  dummyContentTypes,
-  type SearchFacets,
-  type WorkflowStatus,
-  getStatusLabel,
-} from "./types";
+import { type SearchFacets, type WorkflowStatus } from "./types";
+import { useContentTypes } from "@/hooks/use-content";
 
 interface SearchFiltersProps {
   contentTypeFilter: number[];
@@ -40,6 +36,7 @@ export function SearchFilters({
   onClearFilters,
   onPageChange,
 }: SearchFiltersProps) {
+  const { data: contentTypes } = useContentTypes();
   return (
     <div className="lg:col-span-1">
       <Card className="p-5 bg-[var(--card-bg-inner)] border border-[var(--border)] shadow-sm">
@@ -69,25 +66,25 @@ export function SearchFilters({
             Content Types
           </label>
           <div className="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar pr-2">
-            {dummyContentTypes.map((type) => {
-              const count = facets.content_types[type.name] || 0;
-              const isSelected = contentTypeFilter.includes(type.id);
+            {(contentTypes || []).map((ct) => {
+              const count = facets.content_types[ct.name] || 0;
+              const isSelected = contentTypeFilter.includes(ct.id);
               return (
                 <label
-                  key={type.id}
+                  key={ct.id}
                   className="flex items-center justify-between cursor-pointer p-2.5 rounded-md hover:bg-[var(--card-bg)] transition-colors group"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={() => {
-                        onToggleContentType(type.id);
+                        onToggleContentType(ct.id);
                         onPageChange(1);
                       }}
                       className="shrink-0"
                     />
                     <span className={`text-sm font-medium truncate ${isSelected ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
-                      {type.name}
+                      {ct.name}
                     </span>
                   </div>
                   <Badge 

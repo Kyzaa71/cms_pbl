@@ -165,6 +165,7 @@ export function PermissionMatrix({ permissions, onChange }: PermissionMatrixProp
                                 />
                                 {isChecked && (
                                   <Button
+                                    type="button"
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6"
@@ -224,6 +225,7 @@ export function PermissionMatrix({ permissions, onChange }: PermissionMatrixProp
                         </p>
                       </div>
                       <Button
+                        type="button"
                         variant="ghost"
                         size="icon"
                         onClick={() => {
@@ -279,6 +281,7 @@ export function PermissionMatrix({ permissions, onChange }: PermissionMatrixProp
 
                     <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
                       <Button
+                        type="button"
                         variant="outline"
                         size="sm"
                         onClick={() => removePermission(module, action)}

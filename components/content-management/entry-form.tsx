@@ -7,18 +7,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft } from "lucide-react";
-import {
-  getContentTypeById,
-  getFieldsByContentTypeId,
-} from "@/components/content-builder/types";
-import {
-  getEntryById,
-  getStatusBadgeColor,
-  getStatusLabel,
-  type ContentEntry,
-  type WorkflowStatus,
-} from "@/components/content-management/types";
+import { getStatusBadgeColor, getStatusLabel, type WorkflowStatus } from "@/components/content-management/types";
+import { useContentType } from "@/hooks/use-content";
+import { contentService } from "@/lib/services/content-service";
 import { DynamicFieldRenderer } from "./dynamic-field-renderer";
+import { useAuth } from "@/hooks/use-auth";
 
 interface EntryFormProps {
   contentTypeId: number;
@@ -28,6 +21,8 @@ interface EntryFormProps {
 }
 
 export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryFormProps) {
+  const { data: fetchedCT } = useContentType(contentTypeId);
+  const { user, can } = useAuth();
   const [contentType, setContentType] = useState<any>(null);
   const [fields, setFields] = useState<any[]>([]);
   const [formData, setFormData] = useState<Record<string, any>>({});
@@ -36,32 +31,44 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const ct = getContentTypeById(contentTypeId);
-    setContentType(ct);
-
-    if (contentTypeId) {
-      const fieldsData = getFieldsByContentTypeId(contentTypeId);
-      setFields(fieldsData);
-
-      // Initialize form data with default values
+    if (fetchedCT) {
+      setContentType(fetchedCT);
+      const merged = [
+        ...(fetchedCT.fields || []),
+        ...(fetchedCT.seo_fields || []),
+      ].map((f: any) => ({
+        id: f.id,
+        contentTypeId: f.content_type_id,
+        name: f.name,
+        type: f.type,
+        required: f.required,
+        isSeo: !!f.is_seo,
+        unique: f.unique,
+        maxLength: f.max_length,
+        minLength: f.min_length,
+        pattern: f.pattern,
+        minValue: f.min_value,
+        maxValue: f.max_value,
+        defaultValue: f.default_value,
+        placeholder: f.placeholder,
+        helpText: f.help_text,
+      }));
+      setFields(merged);
       const initialData: Record<string, any> = {};
-      fieldsData.forEach((field) => {
-        if (field.defaultValue) {
-          initialData[field.name] = field.defaultValue;
-        }
+      merged.forEach((field: any) => {
+        if (field.defaultValue) initialData[field.name] = field.defaultValue;
       });
       setFormData(initialData);
     }
-  }, [contentTypeId]);
+  }, [fetchedCT]);
 
+  const [currentEntry, setCurrentEntry] = useState<any>(null);
   useEffect(() => {
     if (entryId) {
-      const entry = getEntryById(entryId);
-      if (entry) {
-        setFormData(entry.data || {});
-        // Status is preserved from entry but not editable in Content Management
-        // Users must use Workflow Management to change status
-      }
+      contentService.getEntry(entryId).then((entry) => {
+        setCurrentEntry(entry);
+        setFormData((entry as any).data || {});
+      });
     }
   }, [entryId]);
 
@@ -83,7 +90,28 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
+    const isEditable = (field: any): boolean => {
+      const action: "create" | "update" = entryId ? "update" : "create";
+      if (!can("ContentEntry", action)) return false;
+      const perms = (user?.role?.permissions || []) as any[];
+      const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
+      const scope = (p?.field_scope as string) || "all";
+      const allowed = Array.isArray(p?.allowed_fields) ? (p.allowed_fields as string[]) : undefined;
+      const denied = Array.isArray(p?.denied_fields) ? (p.denied_fields as string[]) : undefined;
+      if (scope === "all") return true;
+      if (scope === "seo_only") return !!field.isSeo;
+      if (scope === "non_seo_only") return !field.isSeo;
+      if (scope === "custom") {
+        if (allowed && allowed.length > 0) return allowed.includes(field.name);
+        if (denied && denied.length > 0) return !denied.includes(field.name);
+        return false;
+      }
+      return false;
+    };
+
     fields.forEach((field) => {
+      const editable = isEditable(field);
+      if (!editable) return;
       if (field.required && !formData[field.name]) {
         newErrors[field.name] = `${field.name} is required`;
       }
@@ -166,6 +194,13 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Ensure at least one field provided
+    const hasData = Object.keys(formData).length > 0 && Object.values(formData).some((v) => v !== undefined && v !== null && String(v).length > 0);
+    if (!hasData) {
+      alert("Please fill at least one field before creating the entry");
+      return;
+    }
+
     if (!validateForm()) {
       return;
     }
@@ -194,11 +229,8 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
     // For new entries, status is always "draft"
     // For existing entries, preserve the existing status (from entryId lookup)
-    const entryStatus: WorkflowStatus = entryId 
-      ? (() => {
-          const entry = getEntryById(entryId);
-          return entry ? entry.status : "draft";
-        })()
+    const entryStatus: WorkflowStatus = entryId
+      ? ((currentEntry?.status as WorkflowStatus) || "draft")
       : "draft";
 
     onSubmit(formattedData, entryStatus);
@@ -216,8 +248,34 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
   const seoFields = fields.filter((f) => f.isSeo);
 
   // Get current entry status if editing
-  const currentEntry = entryId ? getEntryById(entryId) : null;
-  const currentStatus = currentEntry ? currentEntry.status : "draft";
+  const currentStatus = "draft";
+  const canSubmit = entryId ? can("ContentEntry", "update") : can("ContentEntry", "create");
+  const actionScope = (() => {
+    const action: "create" | "update" = entryId ? "update" : "create";
+    const perms = (user?.role?.permissions || []) as any[];
+    const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
+    return (p?.field_scope as string) || "all";
+  })();
+  const hasRequiredSeo = fields.filter((f) => f.isSeo).some((f) => !!f.required);
+  const blockedBySeoRequirement = !entryId && actionScope === "non_seo_only" && hasRequiredSeo;
+  const isEditableField = (field: any): boolean => {
+    const action: "create" | "update" = entryId ? "update" : "create";
+    if (!can("ContentEntry", action)) return false;
+    const perms = (user?.role?.permissions || []) as any[];
+    const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
+    const scope = (p?.field_scope as string) || "all";
+    const allowed = Array.isArray(p?.allowed_fields) ? (p.allowed_fields as string[]) : undefined;
+    const denied = Array.isArray(p?.denied_fields) ? (p.denied_fields as string[]) : undefined;
+    if (scope === "all") return true;
+    if (scope === "seo_only") return !!field.isSeo;
+    if (scope === "non_seo_only") return !field.isSeo;
+    if (scope === "custom") {
+      if (allowed && allowed.length > 0) return allowed.includes(field.name);
+      if (denied && denied.length > 0) return !denied.includes(field.name);
+      return false;
+    }
+    return false;
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -271,6 +329,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
                 value={formData[field.name]}
                 onChange={(value) => handleFieldChange(field.name, value)}
                 error={errors[field.name]}
+                disabled={!isEditableField(field)}
               />
             ))}
           </div>
@@ -278,11 +337,16 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
       )}
 
       {/* SEO Fields */}
-      {seoFields.length > 0 && contentType.enableSeo && (
+      {seoFields.length > 0 && contentType.enable_seo && (
         <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
           <h3 className="text-lg font-semibold text-[var(--foreground)] mb-4">
             SEO Fields
           </h3>
+          {blockedBySeoRequirement && (
+            <div className="mb-4 p-3 rounded bg-yellow-100 text-yellow-800 text-sm border border-yellow-300">
+              Some required SEO fields exist. Your role cannot edit SEO fields. Please ask an editor/manager to complete them or mark them optional.
+            </div>
+          )}
           <div className="space-y-4">
             {seoFields.map((field) => (
               <DynamicFieldRenderer
@@ -291,6 +355,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
                 value={formData[field.name]}
                 onChange={(value) => handleFieldChange(field.name, value)}
                 error={errors[field.name]}
+                disabled={!isEditableField(field)}
               />
             ))}
           </div>
@@ -310,6 +375,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
         <Button
           type="submit"
           className="flex-1 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] !text-white"
+          disabled={!canSubmit || blockedBySeoRequirement}
         >
           {entryId ? "Update Entry" : "Create Entry"}
         </Button>
@@ -317,4 +383,3 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
     </form>
   );
 }
-

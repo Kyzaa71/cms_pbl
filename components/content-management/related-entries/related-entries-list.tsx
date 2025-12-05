@@ -6,30 +6,61 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, Link2, ArrowRight } from "lucide-react";
 import { RelatedEntriesProps, RelatedEntry } from "./types";
-import { generateRelatedEntries, getRelationTypeLabel, getRelationTypeColor } from "./related-entries-helpers";
+import { getRelationTypeLabel } from "./related-entries-helpers";
 import { RelatedEntryCard } from "./related-entry-card";
+import { relationsService } from "@/lib/services/relations-service";
+import { contentService } from "@/lib/services/content-service";
+import { useContentTypes } from "@/hooks/use-content";
 
 export function RelatedEntriesList({
   entryId,
   contentTypeId,
   relationType = "related",
   limit = 6,
+  direction = "outgoing",
 }: RelatedEntriesProps) {
   const [relatedEntries, setRelatedEntries] = useState<RelatedEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRelationType, setSelectedRelationType] = useState<typeof relationType>(relationType);
+  const { data: contentTypes } = useContentTypes();
+  const ctNameById = (contentTypes || []).reduce<Record<number, { id: number; name: string; slug: string }>>((acc, ct) => { acc[ct.id] = { id: ct.id, name: ct.name, slug: ct.slug }; return acc; }, {});
 
   useEffect(() => {
     setIsLoading(true);
-    // In a real app, this would fetch from: GET /search/entries/:entry_id/related?type={relationType}
-    
-    // Simulate API call
-    setTimeout(() => {
-      const entries = generateRelatedEntries(entryId, selectedRelationType, limit);
-      setRelatedEntries(entries);
-      setIsLoading(false);
-    }, 300);
-  }, [entryId, selectedRelationType, limit]);
+    (async () => {
+      try {
+        const rels = direction === "incoming"
+          ? await relationsService.getIncomingRelations(entryId)
+          : await relationsService.getRelations(entryId);
+        const filtered = selectedRelationType ? rels.filter(r => r.relation_type === selectedRelationType) : rels;
+        const top = filtered.slice(0, limit);
+        const entries = await Promise.all(top.map(async (r) => {
+          const e = await contentService.getEntry(r.to_content_id);
+          const data = (e.data || {}) as Record<string, unknown>;
+          const title = String(data.title || data.name || "");
+          const excerpt = typeof data.excerpt === "string" ? data.excerpt : undefined;
+          return {
+            id: e.id,
+            contentTypeId: e.content_type_id,
+            contentType: ctNameById[e.content_type_id] || { id: e.content_type_id, name: `Content Type #${e.content_type_id}`, slug: String(e.content_type_id) },
+            title: title || `Entry #${e.id}`,
+            excerpt,
+            status: e.status as any,
+            relationType: r.relation_type as any,
+            createdAt: String(e.created_at || ""),
+            updatedAt: String(e.updated_at || ""),
+            publishedAt: undefined,
+            creator: undefined,
+          } as RelatedEntry;
+        }));
+        setRelatedEntries(entries);
+      } catch {
+        setRelatedEntries([]);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [entryId, selectedRelationType, limit, direction]);
 
   const relationTypes: Array<{ value: typeof relationType; label: string }> = [
     { value: "related", label: "Related" },
@@ -49,10 +80,10 @@ export function RelatedEntriesList({
           </div>
           <div>
             <h3 className="text-lg font-semibold text-[var(--foreground)]">
-              Related Entries
+              {direction === "incoming" ? "Referenced By" : "Related Entries"}
             </h3>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Entries related to this content
+              {direction === "incoming" ? "Entries linking to this content" : "Entries related to this content"}
             </p>
           </div>
         </div>

@@ -1,23 +1,49 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { UserForm } from "@/components/user-management/user-form";
-import { dummyUsers, dummyRoles, User } from "@/components/user-management/types";
+import type { User as UIUser, Role as UIRole } from "@/components/user-management/types";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { userService, roleService } from "@/lib/services/user-service";
+import type { User as BackendUser, Role as BackendRole } from "@/types/backend-models";
 
 export default function EditUserPage() {
   const params = useParams();
   const router = useRouter();
   const userId = params?.id ? parseInt(params.id as string) : null;
+  const [user, setUser] = useState<UIUser | null>(null);
+  const [roles, setRoles] = useState<UIRole[]>([]);
+  useEffect(() => {
+    const load = async () => {
+      if (!userId) return;
+      try {
+        const [u, r] = await Promise.all([userService.getById(userId), roleService.list()]);
+        const mapped: UIUser = {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role?.name || String(u.role_id),
+          roleId: u.role_id,
+          status: (u.status as "active" | "inactive") || "active",
+          avatar: u.profile,
+          createdAt: u.created_at,
+          provider: u.provider,
+        };
+        setUser(mapped);
+        setRoles(r.map((x: BackendRole) => ({ id: x.id, name: x.name, description: x.description })));
+      } catch {}
+    };
+    load();
+  }, [userId]);
 
-  const user = userId ? dummyUsers.find((u) => u.id === userId) : null;
-
-  const handleSave = (userData: Partial<User>) => {
-    // In a real app, this would call an API
-    // For now, just navigate back to the detail page
-    // In a real implementation, you'd update the state/API here
-    router.push(`/user-management/${userId}`);
+  const handleSave = (userData: Partial<UIUser>) => {
+    if (!userId) return;
+    userService
+      .update(userId, { name: userData.name, email: userData.email, role_id: userData.roleId })
+      .then(() => router.push(`/user-management/${userId}`))
+      .catch((e) => alert(e?.message || "Failed to update user"));
   };
 
   if (!user) {
@@ -55,7 +81,7 @@ export default function EditUserPage() {
       </div>
 
       {/* Form */}
-      <UserForm user={user} roles={dummyRoles} mode="edit" onSave={handleSave} />
+      <UserForm user={user} roles={roles} mode="edit" onSave={handleSave} />
     </div>
   );
 }

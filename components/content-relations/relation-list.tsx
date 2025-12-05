@@ -1,6 +1,6 @@
 "use client";
 
-import { ContentRelation } from "./types";
+import type { ContentRelation } from "@/types/backend-models";
 import { RelationCard } from "./relation-card";
 
 interface RelationListProps {

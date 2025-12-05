@@ -1,6 +1,7 @@
 "use client";
 
-import { WorkflowAssignment, formatDateTime, getInitials } from "./types";
+import { formatDateTime, getInitials } from "./types";
+import type { WorkflowAssignment } from "@/types/backend-models";
 import { StatusBadge } from "./status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -56,34 +57,25 @@ export function AssignmentsList({
               } hover:bg-[color-mix(in srgb, var(--primary) 8%, var(--card-bg-inner))] transition`}
             >
               <td className="py-3 px-4">
-                {assignment.entry ? (
-                  <div>
-                    <p className="font-medium text-[var(--foreground)]">
-                      {assignment.entry.title}
-                    </p>
-                    <p className="text-xs text-[var(--muted-foreground)]">
-                      {assignment.entry.contentType.name}
-                    </p>
-                  </div>
-                ) : (
-                  <span className="text-[var(--muted-foreground)]">
-                    Entry #{assignment.entryId}
-                  </span>
-                )}
+                <div>
+                  <p className="font-medium text-[var(--foreground)]">
+                    {assignment.entry ? `Entry #${assignment.entry.id}` : `Entry #${assignment.entry_id}`}
+                  </p>
+                </div>
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-2">
                   <Avatar className="w-8 h-8">
                     <AvatarFallback className="text-xs">
-                      {getInitials(assignment.user.name)}
+                      {getInitials(assignment.user?.name || "")}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-sm text-[var(--foreground)]">
-                      {assignment.user.name}
+                      {assignment.user?.name || "-"}
                     </p>
                     <p className="text-xs text-[var(--muted-foreground)]">
-                      {assignment.user.email}
+                      {assignment.user?.email || ""}
                     </p>
                   </div>
                 </div>
@@ -92,25 +84,25 @@ export function AssignmentsList({
                 <div className="flex items-center gap-2">
                   <Avatar className="w-8 h-8">
                     <AvatarFallback className="text-xs">
-                      {getInitials(assignment.assigner.name)}
+                      {getInitials(assignment.assigner?.name || "")}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-sm text-[var(--foreground)]">
-                      {assignment.assigner.name}
+                      {assignment.assigner?.name || "-"}
                     </p>
                     <p className="text-xs text-[var(--muted-foreground)]">
-                      {assignment.assigner.email}
+                      {assignment.assigner?.email || ""}
                     </p>
                   </div>
                 </div>
               </td>
               <td className="py-3 px-4">
-                {assignment.dueDate ? (
+                {assignment.due_date ? (
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-[var(--muted-foreground)]" />
                     <span className="text-[var(--foreground)]">
-                      {formatDateTime(assignment.dueDate)}
+                      {formatDateTime(assignment.due_date)}
                     </span>
                   </div>
                 ) : (
@@ -136,7 +128,7 @@ export function AssignmentsList({
                 </Badge>
               </td>
               <td className="py-3 px-4 text-[var(--muted-foreground)]">
-                {formatDateTime(assignment.createdAt)}
+                {formatDateTime(assignment.created_at)}
               </td>
               {showActions && (
                 <td className="py-3 px-4 text-center">
@@ -145,9 +137,7 @@ export function AssignmentsList({
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() =>
-                          router.push(`/workflow-management/${assignment.entryId}`)
-                        }
+                      onClick={() => router.push(`/workflow-management/${assignment.entry_id}`)}
                         className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)]"
                         title="View Entry"
                       >

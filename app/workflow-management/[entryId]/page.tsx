@@ -1,10 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { EntryDetailView } from "@/components/workflow-management/entry-detail-view";
-import { dummyEntries } from "@/components/workflow-management/types";
+import { contentService } from "@/lib/services/content-service";
 
 export default function EntryDetailPage() {
   const params = useParams();
@@ -13,7 +14,10 @@ export default function EntryDetailPage() {
     ? parseInt(Array.isArray(params.entryId) ? params.entryId[0] : params.entryId)
     : null;
 
-  const entry = entryId ? dummyEntries.find((e) => e.id === entryId) : null;
+  const [entry, setEntry] = useState<any>(null);
+  useEffect(() => {
+    if (entryId) contentService.getEntry(entryId).then(setEntry);
+  }, [entryId]);
 
   return (
     <div className="space-y-6">

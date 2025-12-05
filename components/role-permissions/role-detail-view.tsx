@@ -11,7 +11,6 @@ import {
   getPermissionLabel,
   getFieldScopeLabel,
   countPermissions,
-  countUsersWithRole,
   formatRoleName,
 } from "./types";
 import { dummyContentTypes } from "./types";
@@ -20,9 +19,10 @@ interface RoleDetailViewProps {
   role: Role | null;
   onDuplicate?: () => void;
   onDelete?: () => void;
+  userCount?: number;
 }
 
-export function RoleDetailView({ role, onDuplicate, onDelete }: RoleDetailViewProps) {
+export function RoleDetailView({ role, onDuplicate, onDelete, userCount = 0 }: RoleDetailViewProps) {
   const router = useRouter();
 
   if (!role) {
@@ -33,7 +33,7 @@ export function RoleDetailView({ role, onDuplicate, onDelete }: RoleDetailViewPr
     );
   }
 
-  const userCount = countUsersWithRole(role.id);
+  // userCount provided by parent
 
   return (
     <div className="space-y-6">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -17,20 +17,56 @@ import {
   Filter,
   Layers,
   FileText,
-  Settings,
   Database,
 } from "lucide-react";
-import {
-  dummyContentTypes,
-  ContentType,
-  formatSlug,
-} from "@/components/content-builder/types";
+import { ContentType } from "@/types/backend-models";
+import { useContentTypes, contentActions } from "@/hooks/use-content";
+import { contentService } from "@/lib/services/content-service";
+import { workflowService } from "@/lib/services/workflow-service";
 
 export default function ContentBuilderPage() {
   const router = useRouter();
-  const [contentTypes] = useState<ContentType[]>(dummyContentTypes);
+  const { data: serverContentTypes } = useContentTypes();
+  const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [seoFilter, setSeoFilter] = useState<string>("all");
+  const [entriesCountByCT, setEntriesCountByCT] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    setContentTypes(serverContentTypes || []);
+  }, [serverContentTypes]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCounts() {
+      const map: Record<number, number> = {};
+      for (const ct of serverContentTypes || []) {
+        try {
+          const stats = await workflowService.stats(ct.id).catch(() => null);
+          if (stats && typeof stats.total === "number") {
+            map[ct.id] = stats.total;
+            continue;
+          }
+        } catch {}
+        try {
+          const wf = await workflowService.entriesByStatus(ct.id).catch(() => []);
+          if (Array.isArray(wf) && wf.length >= 0) {
+            map[ct.id] = wf.length;
+            continue;
+          }
+        } catch {}
+        try {
+          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100 });
+          map[ct.id] = Array.isArray(res.entries) ? res.entries.length : 0;
+        } catch {
+          map[ct.id] = 0;
+        }
+      }
+      if (active) setEntriesCountByCT(map);
+    }
+    loadCounts();
+    return () => { active = false; };
+  }, [serverContentTypes]);
 
   // Filter content types
   const filteredContentTypes = contentTypes.filter((ct) => {
@@ -39,18 +75,18 @@ export default function ContentBuilderPage() {
       ct.slug.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesSeo =
       seoFilter === "all" ||
-      (seoFilter === "enabled" && ct.enableSeo) ||
-      (seoFilter === "disabled" && !ct.enableSeo);
+      (seoFilter === "enabled" && ct.enable_seo) ||
+      (seoFilter === "disabled" && !ct.enable_seo);
     return matchesSearch && matchesSeo;
   });
 
   // Stats
-  const stats = {
+  const stats = useMemo(() => ({
     total: contentTypes.length,
-    withSeo: contentTypes.filter((ct) => ct.enableSeo).length,
-    totalFields: contentTypes.reduce((sum, ct) => sum + ct.fieldsCount, 0),
-    totalEntries: contentTypes.reduce((sum, ct) => sum + ct.entriesCount, 0),
-  };
+    withSeo: contentTypes.filter((ct) => ct.enable_seo).length,
+    totalFields: contentTypes.reduce((sum, ct) => sum + (ct.fields?.length || 0) + (ct.seo_fields?.length || 0), 0),
+    totalEntries: contentTypes.reduce((sum, ct) => sum + (entriesCountByCT[ct.id] || 0), 0),
+  }), [contentTypes, entriesCountByCT]);
 
   // Handlers
   const handleView = (contentTypeId: number) => {
@@ -65,17 +101,25 @@ export default function ContentBuilderPage() {
     router.push(`/content-management?type=${contentTypeId}`);
   };
 
-  const handleDelete = (contentType: ContentType) => {
-    if (contentType.entriesCount > 0) {
-      alert(
-        `Cannot delete "${contentType.name}" because it has ${contentType.entriesCount} entry${contentType.entriesCount !== 1 ? "s" : ""}. Please delete or reassign entries first.`
-      );
-      return;
+  const handleDelete = async (contentType: ContentType) => {
+    try {
+      const res = await contentService.listEntries(contentType.id, { page: 1, limit: 1 });
+      const total = res.meta?.total || 0;
+      if (total > 0) {
+        alert(`Cannot delete "${contentType.name}" because it has ${total} entry${total !== 1 ? "s" : ""}. Please delete or reassign entries first.`);
+        return;
+      }
+    } catch {
+      // continue, assume no entries when meta unavailable
     }
 
-    if (confirm(`Are you sure you want to delete "${contentType.name}"?`)) {
-      // In a real app, this would call an API
-      console.log("Delete content type:", contentType.id);
+    if (!confirm(`Are you sure you want to delete "${contentType.name}"?`)) return;
+    try {
+      await contentActions.deleteContentType(contentType.id);
+      setContentTypes((prev) => prev.filter((ct) => ct.id !== contentType.id));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(msg || "Failed to delete content type");
     }
   };
 
@@ -219,17 +263,17 @@ export default function ContentBuilderPage() {
 
                   {/* Fields */}
                   <td className="py-3 px-4 text-[var(--foreground)]">
-                    {contentType.fieldsCount}
+                    {(contentType.fields?.length || 0) + (contentType.seo_fields?.length || 0)}
                   </td>
 
                   {/* Entries */}
                   <td className="py-3 px-4 text-[var(--foreground)]">
-                    {contentType.entriesCount}
+                    {entriesCountByCT[contentType.id] || 0}
                   </td>
 
                   {/* SEO */}
                   <td className="py-3 px-4">
-                    {contentType.enableSeo ? (
+                    {contentType.enable_seo ? (
                       <Badge className="bg-[var(--success)] text-white border-none">
                         Enabled
                       </Badge>

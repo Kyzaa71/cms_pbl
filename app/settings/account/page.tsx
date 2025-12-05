@@ -1,14 +1,56 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuthStore } from "@/stores/auth-store";
+import { authService } from "@/lib/services/auth-service";
+import { userService } from "@/lib/services/user-service";
+import type { User } from "@/types/backend-models";
 
 export default function AccountInfoPage() {
   const router = useRouter();
+  const { user: storeUser, setUser } = useAuthStore();
+  const [user, setLocalUser] = useState<User | null>(storeUser);
+  const [name, setName] = useState<string>(storeUser?.name || "");
+  const [email, setEmail] = useState<string>(storeUser?.email || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const me = await authService.getCurrentUser();
+        setLocalUser(me);
+        setUser(me);
+        setName(me?.name || "");
+        setEmail(me?.email || "");
+      } catch {}
+    };
+    if (!storeUser) load();
+  }, [storeUser, setUser]);
+
+  useEffect(() => {
+    if (storeUser) {
+      setLocalUser(storeUser);
+      setName(storeUser.name || "");
+      setEmail(storeUser.email || "");
+    }
+  }, [storeUser]);
+
+  const handleSave = async () => {
+    if (!user?.id) return;
+    setSaving(true);
+    try {
+      const updated = await userService.update(user.id, { name, email });
+      setLocalUser(updated);
+      setUser(updated);
+    } catch {}
+    setSaving(false);
+  };
 
   return (
     <div
@@ -57,8 +99,10 @@ export default function AccountInfoPage() {
             onMouseLeave={(e) =>
               (e.currentTarget.style.backgroundColor = "var(--accent)")
             }
+            disabled={saving || !name || !email}
+            onClick={handleSave}
           >
-            Save
+            {saving ? "Saving..." : "Save"}
           </Button>
         </div>
       </div>
@@ -78,8 +122,10 @@ export default function AccountInfoPage() {
           {/* Profile Avatar */}
           <div className="flex items-center space-x-6">
             <Avatar className="h-20 w-20">
-              <AvatarImage src="/avatar-placeholder.png" alt="User avatar" />
-              <AvatarFallback>U</AvatarFallback>
+              <AvatarImage src={user?.profile || "/avatar-placeholder.png"} alt="User avatar" />
+              <AvatarFallback>
+                {(user?.name || "").split(" ").map((n) => n[0]).join("") || "U"}
+              </AvatarFallback>
             </Avatar>
             <div>
               <Button
@@ -112,7 +158,8 @@ export default function AccountInfoPage() {
               <Input
                 id="name"
                 placeholder="Your full name"
-                defaultValue="John Doe"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 style={{ backgroundColor: "var(--input-bg)" }}
               />
             </div>
@@ -121,7 +168,8 @@ export default function AccountInfoPage() {
               <Input
                 id="email"
                 placeholder="you@example.com"
-                defaultValue="john@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 type="email"
                 style={{ backgroundColor: "var(--input-bg)" }}
               />

@@ -17,6 +17,7 @@ interface DynamicFieldRendererProps {
   value: any;
   onChange: (value: any) => void;
   error?: string;
+  disabled?: boolean;
 }
 
 export function DynamicFieldRenderer({
@@ -24,6 +25,7 @@ export function DynamicFieldRenderer({
   value,
   onChange,
   error,
+  disabled,
 }: DynamicFieldRendererProps) {
   const [showMediaSelector, setShowMediaSelector] = useState(false);
   
@@ -61,6 +63,7 @@ export function DynamicFieldRenderer({
             maxLength={field.maxLength}
             minLength={field.minLength}
             pattern={field.pattern}
+            disabled={!!disabled}
             className={`border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] ${error ? "border-[var(--danger)]" : ""}`}
           />
         );
@@ -74,6 +77,7 @@ export function DynamicFieldRenderer({
             maxLength={field.maxLength}
             minLength={field.minLength}
             rows={4}
+            disabled={!!disabled}
             className={`border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] ${error ? "border-[var(--danger)]" : ""}`}
           />
         );
@@ -91,6 +95,7 @@ export function DynamicFieldRenderer({
             min={field.minValue}
             max={field.maxValue}
             step="any"
+            disabled={!!disabled}
             className={`border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] ${error ? "border-[var(--danger)]" : ""}`}
           />
         );
@@ -101,6 +106,7 @@ export function DynamicFieldRenderer({
             <Switch
               checked={value || false}
               onCheckedChange={onChange}
+              disabled={!!disabled}
             />
             <span className="text-sm text-[var(--muted-foreground)]">
               {value ? "Yes" : "No"}
@@ -114,6 +120,7 @@ export function DynamicFieldRenderer({
             type="date"
             value={value || ""}
             onChange={(e) => onChange(e.target.value)}
+            disabled={!!disabled}
             className={`border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] ${error ? "border-[var(--danger)]" : ""}`}
           />
         );
@@ -152,23 +159,27 @@ export function DynamicFieldRenderer({
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowMediaSelector(true)}
-                      className="flex-shrink-0"
-                    >
-                      Change
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => onChange(undefined)}
-                      className="p-1.5 rounded hover:bg-[var(--hover)] transition-colors text-[var(--danger)]"
-                      title="Remove"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                    {!disabled && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowMediaSelector(true)}
+                          className="flex-shrink-0"
+                        >
+                          Change
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => onChange(undefined)}
+                          className="p-1.5 rounded hover:bg-[var(--hover)] transition-colors text-[var(--danger)]"
+                          title="Remove"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -177,6 +188,7 @@ export function DynamicFieldRenderer({
                 type="button"
                 variant="outline"
                 onClick={() => setShowMediaSelector(true)}
+                disabled={!!disabled}
                 className="w-full border-[var(--border)]"
               >
                 <Upload className="w-4 h-4 mr-2" />
@@ -212,6 +224,7 @@ export function DynamicFieldRenderer({
             value={value || ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder || `Enter ${field.name}`}
+            disabled={!!disabled}
             className={`border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] ${error ? "border-[var(--danger)]" : ""}`}
           />
         );

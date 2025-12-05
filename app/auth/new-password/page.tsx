@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "next-themes";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Eye, EyeOff, Lock, CheckCircle, Sun, Moon } from "lucide-react";
 
 export default function NewPasswordPage() {
+  const params = useSearchParams();
+  const { resetPassword } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [password, setPassword] = useState("");
@@ -24,10 +28,13 @@ export default function NewPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsLoading(false);
-    setIsSuccess(true);
+    try {
+      const token = params.get("token") || "";
+      await resetPassword(token, password);
+      setIsSuccess(true);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const passwordMatch = password && confirmPassword && password === confirmPassword;

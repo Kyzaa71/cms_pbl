@@ -1,50 +1,83 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { ArrowLeft, Plus, Link2, ArrowRight, ArrowLeft as ArrowLeftIcon } from "lucide-react";
-import {
-  getRelationsByEntryId,
-  getIncomingRelationsByEntryId,
-  getAllRelationsByEntryId,
-} from "@/components/content-relations/types";
-import { dummyEntries } from "@/components/workflow-management/types";
+import { relationsService } from "@/lib/services/relations-service";
+import { contentService } from "@/lib/services/content-service";
 import { RelationList } from "@/components/content-relations/relation-list";
 import { RelationForm } from "@/components/content-relations/relation-form";
 import { StatusBadge } from "@/components/workflow-management/status-badge";
 import { getRelationTypeLabel } from "@/components/content-relations/types";
+import { useContentTypes } from "@/hooks/use-content";
+import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api-client";
+import type { ContentEntry } from "@/types/backend-models";
 
 export default function EntryRelationsPage() {
   const params = useParams();
   const router = useRouter();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const { can, user } = useAuth();
+  const roleName = user?.role?.name || (() => {
+    try {
+      const t = api.getToken() || "";
+      const part = t.split(".")[1] || "";
+      const json = part ? JSON.parse(atob(part)) : {};
+      return typeof json?.role === "string" ? json.role : "";
+    } catch { return ""; }
+  })();
+  const canModifyRelations = can("ContentEntry", "update") && roleName !== "seo_specialist";
   
   const entryId = params?.entryId
     ? parseInt(Array.isArray(params.entryId) ? params.entryId[0] : params.entryId)
     : null;
 
-  const entry = entryId ? dummyEntries.find((e) => e.id === entryId) : null;
-  const outgoingRelations = entryId ? getRelationsByEntryId(entryId) : [];
-  const incomingRelations = entryId ? getIncomingRelationsByEntryId(entryId) : [];
+  const [entry, setEntry] = useState<ContentEntry | null>(null);
+  const [outgoingRelations, setOutgoingRelations] = useState<any[]>([]);
+  const [incomingRelations, setIncomingRelations] = useState<any[]>([]);
+  const { data: contentTypes } = useContentTypes();
+  const ctNameById = (contentTypes || []).reduce<Record<number, string>>((acc, ct) => { acc[ct.id] = ct.name; return acc; }, {});
 
-  const handleCreateRelation = (data: {
+  useEffect(() => {
+    if (entryId) {
+      contentService.getEntry(entryId).then(setEntry);
+      relationsService.getRelations(entryId).then(setOutgoingRelations);
+      relationsService.getIncomingRelations(entryId).then(setIncomingRelations);
+    }
+  }, [entryId]);
+
+  const handleCreateRelation = async (data: {
     fromContentId: number;
     toContentId: number;
     relationType: string;
   }) => {
-    console.log("Create relation:", data);
-    // In real app, this would call API: POST /content/:from_content_id/relations
-    setShowCreateModal(false);
-    alert(`Relation created: ${data.fromContentId} → ${data.toContentId} (${data.relationType})`);
+    if (!canModifyRelations) { alert("no permission"); return; }
+    try {
+      await relationsService.createRelation(data.fromContentId, { to_content_id: data.toContentId, relation_type: data.relationType });
+      setShowCreateModal(false);
+      const updated = await relationsService.getRelations(data.fromContentId);
+      setOutgoingRelations(updated);
+    } catch {
+      alert("no permission");
+    }
   };
 
-  const handleDeleteRelation = (relationId: number) => {
+  const handleDeleteRelation = async (relationId: number) => {
     if (confirm("Are you sure you want to delete this relation?")) {
-      console.log("Delete relation:", relationId);
-      // In real app, this would call API: DELETE /content/relations/:relation_id
+      if (!canModifyRelations) { alert("no permission"); return; }
+      try {
+        await relationsService.deleteRelation(relationId);
+        if (entryId) {
+          const updated = await relationsService.getRelations(entryId);
+          setOutgoingRelations(updated);
+        }
+      } catch {
+        alert("no permission");
+      }
     }
   };
 
@@ -91,17 +124,19 @@ export default function EntryRelationsPage() {
               Content Relations
             </h1>
             <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
-              Manage relations for: {entry.title}
+              Manage relations for: {String(((entry?.data || {}) as any).title || (entry?.data || {})?.name || `Entry #${entry?.id}`)}
             </p>
           </div>
         </div>
-        <Button
-          className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] flex items-center gap-2 transition-colors"
-          onClick={() => setShowCreateModal(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Create Relation
-        </Button>
+        {canModifyRelations && (
+          <Button
+            className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] flex items-center gap-2 transition-colors"
+            onClick={() => setShowCreateModal(true)}
+          >
+            <Plus className="w-4 h-4" />
+            Create Relation
+          </Button>
+        )}
       </div>
 
       {/* Entry Info Card */}
@@ -109,16 +144,16 @@ export default function EntryRelationsPage() {
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <h2 className="text-xl font-bold text-[var(--foreground)] mb-2">
-              {entry.title}
+              {String(((entry?.data || {}) as any).title || (entry?.data || {})?.name || `Entry #${entry?.id}`)}
             </h2>
             <div className="flex items-center gap-4 text-sm text-[var(--muted-foreground)]">
-              <span>{entry.contentType.name}</span>
-              <StatusBadge status={entry.status} />
+              <span>{ctNameById[entry.content_type_id] || `Content Type #${entry.content_type_id}`}</span>
+              <StatusBadge status={entry.status as any} />
             </div>
           </div>
           <div className="text-right">
             <p className="text-sm text-[var(--muted-foreground)]">Entry ID</p>
-            <p className="text-lg font-semibold text-[var(--foreground)]">#{entry.id}</p>
+            <p className="text-lg font-semibold text-[var(--foreground)]">#{entry?.id}</p>
           </div>
         </div>
       </Card>
@@ -172,8 +207,8 @@ export default function EntryRelationsPage() {
         {outgoingRelations.length > 0 ? (
           <RelationList
             relations={outgoingRelations}
-            onDelete={handleDeleteRelation}
-            showActions={true}
+            onDelete={canModifyRelations ? handleDeleteRelation : undefined}
+            showActions={canModifyRelations}
           />
         ) : (
           <div className="text-center py-8 text-[var(--muted-foreground)]">
@@ -200,8 +235,8 @@ export default function EntryRelationsPage() {
         {incomingRelations.length > 0 ? (
           <RelationList
             relations={incomingRelations}
-            onDelete={handleDeleteRelation}
-            showActions={true}
+            onDelete={canModifyRelations ? handleDeleteRelation : undefined}
+            showActions={canModifyRelations}
           />
         ) : (
           <div className="text-center py-8 text-[var(--muted-foreground)]">
@@ -213,7 +248,7 @@ export default function EntryRelationsPage() {
       </Card>
 
       {/* Create Relation Modal */}
-      {showCreateModal && (
+      {showCreateModal && canModifyRelations && (
         <Modal
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
@@ -230,4 +265,3 @@ export default function EntryRelationsPage() {
     </div>
   );
 }
-

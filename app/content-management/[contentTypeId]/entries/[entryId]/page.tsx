@@ -1,67 +1,120 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect, useMemo } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, X, Pencil, FileText, Search } from "lucide-react";
-import { getContentTypeById } from "@/components/content-builder/types";
-import {
-  getEntryById,
-  getEntryTitle,
-  getStatusBadgeColor,
-  getStatusLabel,
-  formatDate,
-  type ContentEntry,
-  type WorkflowStatus,
-  dummyUsers,
-} from "@/components/content-management/types";
-import { getInitials } from "@/components/user-management/types";
+import { getStatusBadgeColor, getStatusLabel } from "@/components/content-management/types";
+import { contentService } from "@/lib/services/content-service";
+import { mediaService } from "@/lib/services/media-service";
+import { useContentType } from "@/hooks/use-content";
+import { ContentEntry, ContentType, MediaFile, User } from "@/types/backend-models";
 import { EntryForm } from "@/components/content-management/entry-form";
 import { SEOPreviewModal } from "@/components/content-management/seo-preview/seo-preview-modal";
 import { RelatedEntriesList } from "@/components/content-management/related-entries/related-entries-list";
+import { useAuth } from "@/hooks/use-auth";
+import { Modal } from "@/components/ui/modal";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getBaseUrl } from "@/lib/api-client";
 
 export default function EntryDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { can } = useAuth();
   const contentTypeId = parseInt(params.contentTypeId as string);
   const entryId = parseInt(params.entryId as string);
 
   const [entry, setEntry] = useState<ContentEntry | undefined>();
-  const [contentType, setContentType] = useState<any>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const { data: contentType } = useContentType(contentTypeId);
+  const searchParams = useSearchParams();
+  const initialEditing = useMemo(() => searchParams.get("mode") === "edit", [searchParams]);
+  const [isEditing, setIsEditing] = useState(initialEditing);
   const [showSEOPreview, setShowSEOPreview] = useState(false);
+  const [showTranslate, setShowTranslate] = useState(false);
+  const [targetLang, setTargetLang] = useState<string>("en");
+  const [mediaMap, setMediaMap] = useState<Record<number, MediaFile>>({});
+  const [imgPreviewMap, setImgPreviewMap] = useState<Record<string, string>>({});
+  const BASE_URL = getBaseUrl();
+
+  const normalizeUrl = useMemo(() => {
+    return (url?: string): string | null => {
+      if (!url) return null;
+      const cleaned = url.trim().replace(/[\\]+/g, "/");
+      if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+      if (cleaned.startsWith("/")) return `${BASE_URL}${cleaned}`;
+      return `${BASE_URL}/${cleaned}`;
+    };
+  }, [BASE_URL]);
+
+  const proxiedUrl = useMemo(() => {
+    return (url?: string): string | null => {
+      const u = normalizeUrl(url);
+      return u ? `/api/media-proxy?url=${encodeURIComponent(u)}` : null;
+    };
+  }, [normalizeUrl]);
 
   useEffect(() => {
-    const ct = getContentTypeById(contentTypeId);
-    setContentType(ct);
+    contentService.getEntry(entryId).then((e) => setEntry(e));
+  }, [entryId]);
 
-    const entryData = getEntryById(entryId);
-    setEntry(entryData);
-  }, [contentTypeId, entryId]);
-
-  const handleUpdate = (data: Record<string, any>, status: WorkflowStatus) => {
-    // In a real app, this would call: PUT /content/entries/:entry_id
-    // Note: Status is preserved from existing entry, not changed here
-    console.log("Update entry:", {
-      entryId,
-      data,
-      status: entry?.status, // Preserve existing status
-    });
-
-    // Update local state - preserve existing status
-    if (entry) {
-      setEntry({
-        ...entry,
-        data,
-        status: entry.status, // Keep existing status - workflow changes happen elsewhere
-        updatedAt: new Date().toISOString().split("T")[0],
+  useEffect(() => {
+    const loadMedia = async () => {
+      const dataObj = (entry?.data || {}) as Record<string, unknown>;
+      const ids = Object.entries(dataObj)
+        .filter(([k, v]) => typeof v === "number" && /image|media/i.test(k))
+        .map(([, v]) => Number(v))
+        .filter((id) => Number.isFinite(id) && !(id in mediaMap));
+      if (ids.length === 0) return;
+      const results = await Promise.allSettled(ids.map((id) => mediaService.getById(id)));
+      const next: Record<number, MediaFile> = { ...mediaMap };
+      results.forEach((res, idx) => {
+        const id = ids[idx]!;
+        if (res.status === "fulfilled") next[id] = res.value;
       });
-    }
+      setMediaMap(next);
+    };
+    loadMedia();
+  }, [entry, mediaMap]);
 
+  useEffect(() => {
+    const loadPreviews = async () => {
+      if (!entry) return;
+      const dataObj = (entry.data || {}) as Record<string, unknown>;
+      const targets: Array<{ key: string; url: string | null }> = [];
+      Object.entries(dataObj).forEach(([key, value]) => {
+        const isImageId = typeof value === "number" && /image|media/i.test(key);
+        const isImagePath = typeof value === "string" && /(\.png|\.jpg|\.jpeg|\.gif|\.webp)$/i.test(value);
+        let url: string | null = null;
+        if (isImageId) {
+          const mf = mediaMap[Number(value)];
+          url = proxiedUrl(mf?.url);
+        } else if (isImagePath) {
+          url = proxiedUrl(String(value));
+        }
+        if (url && !(key in imgPreviewMap)) {
+          targets.push({ key, url });
+        }
+      });
+      if (targets.length === 0) return [] as string[];
+      const revoked: string[] = [];
+      const results: Array<[string, string | null]> = targets.map((t) => [t.key, t.url]);
+      const next = { ...imgPreviewMap };
+      results.forEach(([k, url]) => { if (url) next[k] = url; });
+      setImgPreviewMap(next);
+      return revoked;
+    };
+    let created: string[] = [];
+    (async () => { created = await loadPreviews(); })();
+    return () => { Array.isArray(created) && created.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} }); };
+  }, [entry, mediaMap, normalizeUrl, imgPreviewMap]);
+
+  const handleUpdate = async (data: Record<string, unknown>) => {
+    const updated = await contentService.updateEntry(entryId, data);
+    setEntry(updated);
     setIsEditing(false);
   };
 
@@ -85,9 +138,10 @@ export default function EntryDetailPage() {
     );
   }
 
-  const creator = entry.creator || dummyUsers.find((u) => u.id === entry.createdBy);
-  const updater = entry.updater || (entry.updatedBy ? dummyUsers.find((u) => u.id === entry.updatedBy) : undefined);
-  const title = getEntryTitle(entry);
+  const creator: User | undefined = entry?.creator;
+  const updater: User | undefined = entry?.updater;
+  const dataObj = (entry.data || {}) as Record<string, unknown>;
+  const title = String(dataObj.title || dataObj.name || `${contentType?.name} #${entry.id}`);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -122,20 +176,28 @@ export default function EntryDetailPage() {
                   </Button>
                 )}
                 <Button
+                  onClick={() => setShowTranslate(true)}
+                  className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-blue-600 hover:!bg-blue-700 active:!bg-blue-800 !text-white !border-blue-600 hover:!border-blue-700 !cursor-pointer flex items-center gap-2"
+                >
+                  Translate
+                </Button>
+                {can("ContentEntry", "update") && (
+                <Button
                   onClick={() => setIsEditing(true)}
                   className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer flex items-center gap-2"
                 >
                   <Pencil className="w-4 h-4" />
                   Edit Content
                 </Button>
-                <Link href={`/workflow-management/${entryId}`}>
-                  <Button
-                    className="flex items-center gap-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] !text-white"
-                  >
-                    <FileText className="w-4 h-4" />
-                    Manage Workflow
-                  </Button>
-                </Link>
+                )}
+                {false && (
+                  <Link href={`/workflow-management/${entryId}`}>
+                    <Button className="flex items-center gap-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] !text-white">
+                      <FileText className="w-4 h-4" />
+                      Manage Workflow
+                    </Button>
+                  </Link>
+                )}
               </>
             )}
             <Link href={`/content-management/${contentTypeId}`}>
@@ -158,65 +220,57 @@ export default function EntryDetailPage() {
               </div>
               <div>
                 <p className="text-sm text-[var(--muted-foreground)] mb-1">Created</p>
-                <p className="text-sm text-[var(--foreground)]">
-                  {formatDate(entry.createdAt)}
-                </p>
+                <p className="text-sm text-[var(--foreground)]">{new Date(entry.created_at).toLocaleDateString()}</p>
               </div>
               <div>
                 <p className="text-sm text-[var(--muted-foreground)] mb-1">Updated</p>
-                <p className="text-sm text-[var(--foreground)]">
-                  {formatDate(entry.updatedAt)}
-                </p>
+                <p className="text-sm text-[var(--foreground)]">{new Date(entry.updated_at).toLocaleDateString()}</p>
               </div>
-              {entry.publishedAt && (
+              {entry.published_at && (
                 <div>
                   <p className="text-sm text-[var(--muted-foreground)] mb-1">Published</p>
-                  <p className="text-sm text-[var(--foreground)]">
-                    {formatDate(entry.publishedAt)}
-                  </p>
+                  <p className="text-sm text-[var(--foreground)]">{new Date(entry.published_at).toLocaleDateString()}</p>
                 </div>
               )}
             </div>
 
             {/* Creator & Updater */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-[var(--border)]">
-              {creator && (
+              {(() => {
+                const creator: User | undefined = entry?.creator;
+                if (!creator) return null;
+                return (
                 <div>
                   <p className="text-sm text-[var(--muted-foreground)] mb-2">Created By</p>
                   <div className="flex items-center gap-2">
                     <Avatar className="w-8 h-8">
-                      <AvatarImage src={creator.avatar} alt={creator.name} />
+                      <AvatarImage src={creator.profile || ""} alt={creator.name || ""} />
                       <AvatarFallback className="bg-[var(--primary)] text-[var(--button-text)]">
-                        {getInitials(creator.name)}
+                        {creator.name?.slice(0,1)?.toUpperCase() || ""}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <p className="text-sm font-medium text-[var(--foreground)]">
-                        {creator.name}
-                      </p>
-                      <p className="text-xs text-[var(--muted-foreground)]">
-                        {creator.email}
-                      </p>
-                    </div>
+                    <p className="text-sm font-medium text-[var(--foreground)]">
+                      {(creator.name?.slice(0,1)?.toUpperCase() || "")} {creator.name} - {creator.email}
+                    </p>
                   </div>
                 </div>
-              )}
+              )})()}
               {updater && (
                 <div>
                   <p className="text-sm text-[var(--muted-foreground)] mb-2">Updated By</p>
                   <div className="flex items-center gap-2">
                     <Avatar className="w-8 h-8">
-                      <AvatarImage src={updater.avatar} alt={updater.name} />
+                      <AvatarImage src={(entry?.updater as User | undefined)?.profile || ""} alt={(entry?.updater as User | undefined)?.name || ""} />
                       <AvatarFallback className="bg-[var(--primary)] text-[var(--button-text)]">
-                        {getInitials(updater.name)}
+                        {(entry?.updater as User | undefined)?.name?.slice(0,2)?.toUpperCase() || ""}
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <p className="text-sm font-medium text-[var(--foreground)]">
-                        {updater.name}
+                        {(entry?.updater as User | undefined)?.name}
                       </p>
                       <p className="text-xs text-[var(--muted-foreground)]">
-                        {updater.email}
+                        {(entry?.updater as User | undefined)?.email}
                       </p>
                     </div>
                   </div>
@@ -236,32 +290,65 @@ export default function EntryDetailPage() {
           />
         ) : (
           <div className="space-y-4">
-            {Object.entries(entry.data).map(([key, value]) => (
-              <div key={key} className="p-4 bg-[var(--card-bg)] rounded-lg border border-[var(--border)]">
-                <p className="text-sm font-medium text-[var(--muted-foreground)] mb-1 capitalize">
-                  {key.replace(/_/g, " ")}
-                </p>
-                <p className="text-base text-[var(--foreground)]">
-                  {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                </p>
-              </div>
-            ))}
+            {(Object.entries((entry.data || {}) as Record<string, unknown>)).map(([key, value]) => {
+              const isImageId = typeof value === "number" && /image|media/i.test(key);
+              const media = isImageId ? mediaMap[Number(value)] : undefined;
+              const isImagePath = typeof value === "string" && /(\.png|\.jpg|\.jpeg|\.gif|\.webp)$/i.test(value);
+              return (
+                <div key={key} className="p-4 bg-[var(--card-bg)] rounded-lg border border-[var(--border)]">
+                  <p className="text-sm font-medium text-[var(--muted-foreground)] mb-1 capitalize">
+                    {key.replace(/_/g, " ")}
+                  </p>
+                  {media && media.type?.startsWith("image/") ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-24 h-24 rounded-lg overflow-hidden bg-[var(--card-bg-inner)] border border-[var(--border)]">
+                        <img src={imgPreviewMap[key] || "https://via.placeholder.com/96x96?text=Image"} alt={media.alt || media.file_name} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="text-sm text-[var(--foreground)]">
+                        <p className="font-medium truncate max-w-[240px]">{media.file_name}</p>
+                        <p className="text-[var(--muted-foreground)]">{media.type}</p>
+                      </div>
+                    </div>
+                  ) : isImagePath ? (
+                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-[var(--card-bg-inner)] border border-[var(--border)]">
+                      <img src={imgPreviewMap[key] || "https://via.placeholder.com/96x96?text=Image"} alt={String(value)} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <p className="text-base text-[var(--foreground)]">
+                      {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>
 
-      {/* Related Entries */}
+      {/* Related Entries (Outgoing) */}
       {entry && (
         <RelatedEntriesList
           entryId={entryId}
           contentTypeId={contentTypeId}
-          relationType="related"
+          relationType={undefined}
+          direction="outgoing"
+          limit={6}
+        />
+      )}
+
+      {/* Referenced By (Incoming) */}
+      {entry && (
+        <RelatedEntriesList
+          entryId={entryId}
+          contentTypeId={contentTypeId}
+          relationType={undefined}
+          direction="incoming"
           limit={6}
         />
       )}
 
       {/* SEO Preview Modal */}
-      {contentType?.enableSeo && entry && (
+      {contentType?.enable_seo && entry && (
         <SEOPreviewModal
           entryId={entryId}
           contentTypeId={contentTypeId}
@@ -271,7 +358,47 @@ export default function EntryDetailPage() {
           onClose={() => setShowSEOPreview(false)}
         />
       )}
+
+      {/* Translate Modal */}
+      {showTranslate && (
+        <Modal
+          isOpen={showTranslate}
+          onClose={() => setShowTranslate(false)}
+          title="Translate Entry"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm text-[var(--muted-foreground)] mb-2">Target Language</p>
+              <Select value={targetLang} onValueChange={setTargetLang}>
+                <SelectTrigger className="w-full border-[var(--border)] bg-[var(--input-bg)]">
+                  <SelectValue placeholder="Language" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English (en)</SelectItem>
+                  <SelectItem value="id">Indonesian (id)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowTranslate(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  const updated = await contentService.translateEntry(entryId, { target_lang: targetLang });
+                  setEntry(updated);
+                  setShowTranslate(false);
+                  alert(`Translated to ${targetLang}`);
+                }}
+                className="!bg-[var(--primary)] hover:!bg-[var(--primary-hover)] !text-white"
+              >
+                Translate
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
-

@@ -1,17 +1,27 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserForm } from "@/components/user-management/user-form";
-import { dummyRoles, dummyUsers, User } from "@/components/user-management/types";
+import type { Role as UIRole, User as UIUser } from "@/components/user-management/types";
+import { roleService, userService } from "@/lib/services/user-service";
 
 export default function CreateUserPage() {
   const router = useRouter();
+  const [roles, setRoles] = useState<UIRole[]>([]);
+  useEffect(() => {
+    roleService.list().then((r) => setRoles(r.map((x) => ({ id: x.id, name: x.name, description: x.description }))));
+  }, []);
 
-  const handleSave = (userData: Partial<User>) => {
-    // In a real app, this would call an API
-    // For now, just navigate back to the list page
-    // In a real implementation, you'd update the state/API here
-    router.push("/user-management");
+  const handleSave = (userData: Partial<UIUser> & { password?: string }) => {
+    if (!userData.email || !userData.name || !userData.roleId || !userData.password) {
+      alert("Name, email, role, and password are required");
+      return;
+    }
+    userService
+      .create({ name: userData.name, email: userData.email, password: userData.password, role_id: userData.roleId })
+      .then(() => router.push("/user-management"))
+      .catch((e) => alert(e?.message || "Failed to create user"));
   };
 
   return (
@@ -29,7 +39,7 @@ export default function CreateUserPage() {
       </div>
 
       {/* Form */}
-      <UserForm roles={dummyRoles} mode="create" onSave={handleSave} />
+      <UserForm roles={roles} mode="create" onSave={handleSave} />
     </div>
   );
 }

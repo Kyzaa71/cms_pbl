@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -18,50 +18,192 @@ import {
   XCircle,
   SendToBack,
 } from "lucide-react";
-import {
-  dummyEntries,
-  dummyContentTypes,
-  getEntriesByStatus,
-  getInitials,
-  formatDate,
-  WorkflowStatus,
-  ContentEntry,
-} from "@/components/workflow-management/types";
+import { getInitials, getAvailableTransitions, isValidTransition } from "@/components/workflow-management/types";
+import { workflowService } from "@/lib/services/workflow-service";
+import { contentService } from "@/lib/services/content-service";
+import { useContentTypes } from "@/hooks/use-content";
+import { ContentEntry } from "@/types/backend-models";
 import { StatusBadge } from "@/components/workflow-management/status-badge";
+import { StatusTransitionModal } from "@/components/workflow-management/status-transition-modal";
+import type { User, WorkflowHistory } from "@/types/backend-models";
+import type { WorkflowStatus } from "@/components/workflow-management/types";
+import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api-client";
+ 
 
 export default function WorkflowManagementPage() {
   const router = useRouter();
-  const [entries] = useState<ContentEntry[]>(dummyEntries);
+  const { can, user, getCurrentUser, token } = useAuth();
+  const { data: contentTypes } = useContentTypes();
+  const [entries, setEntries] = useState<ContentEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
+  const [creators, setCreators] = useState<Record<number, User>>({});
+  const [actionUsers, setActionUsers] = useState<Record<number, User | null>>({});
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
+  const [selectedToStatus, setSelectedToStatus] = useState<WorkflowStatus | null>(null);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const roleName = (() => {
+    let r = "";
+    let tk: string | null = null;
+    if (typeof document !== "undefined") {
+      try { tk = localStorage.getItem("auth_token"); } catch {}
+    }
+    if (!tk) tk = typeof token === "string" ? token : api.getToken();
+    if (typeof tk === "string") {
+      try {
+        const part = tk.split(".")[1] || "";
+        const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+        const pad = base64.length % 4;
+        const padded = base64 + (pad ? "=".repeat(4 - pad) : "");
+        const payload = padded ? JSON.parse(atob(padded)) : {};
+        if (payload && typeof payload.role === "string") r = (payload.role as string).toLowerCase().trim();
+      } catch {}
+    }
+    if (!r) r = ((user?.role?.name || "").toLowerCase().trim());
+    return r || "viewer";
+  })();
+
+  // Removed auto-refresh of current user to avoid excessive /auth/refresh calls
+
+  useEffect(() => {
+    const load = async () => {
+      if (contentTypeFilter !== "all") {
+        const ctId = parseInt(contentTypeFilter);
+        const list = await workflowService.entriesByStatus(ctId, statusFilter === "all" ? undefined : statusFilter);
+        setEntries(list);
+      } else if ((contentTypes || []).length > 0) {
+        const all: ContentEntry[] = [];
+        for (const ct of contentTypes!) {
+          const list = await workflowService.entriesByStatus(ct.id, statusFilter === "all" ? undefined : statusFilter);
+          all.push(...list);
+        }
+        setEntries(all);
+      }
+    };
+    load();
+  }, [contentTypes, contentTypeFilter, statusFilter]);
 
   // Filter entries
   const filteredEntries = entries.filter((entry) => {
-    const matchesSearch =
-      entry.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" || entry.status === statusFilter;
-    const matchesContentType =
-      contentTypeFilter === "all" ||
-      entry.contentTypeId.toString() === contentTypeFilter;
+    const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+    const cands = ["title", "judul", "name", "meta_title"] as const;
+    let title = "";
+    for (const key of cands) {
+      const v = obj[key];
+      if (typeof v === "string" && v.trim().length > 0) { title = v; break; }
+    }
+    if (!title) {
+      for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) { title = v; break; } }
+    }
+    if (!title) title = `Entry #${entry.id}`;
+    const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === "all" || entry.status === statusFilter;
+    const matchesContentType = contentTypeFilter === "all" || String(entry.content_type_id) === contentTypeFilter;
     return matchesSearch && matchesStatus && matchesContentType;
   });
 
-  // Stats
-  const stats = {
-    total: entries.length,
-    draft: getEntriesByStatus("draft").length,
-    inReview: getEntriesByStatus("in_review").length,
-    readyForApproval: getEntriesByStatus("ready_for_approval").length,
-    approved: getEntriesByStatus("approved").length,
-    published: getEntriesByStatus("published").length,
-    rejected: getEntriesByStatus("rejected").length,
+  useEffect(() => {
+    const fillCreators = async () => {
+      const need = filteredEntries.filter((e) => !e.creator).map((e) => e.id).filter((id) => !(id in creators));
+      if (need.length === 0) return;
+      const results = await Promise.allSettled(need.map((id) => contentService.getEntry(id)));
+      const next: Record<number, User> = { ...creators };
+      results.forEach((res, idx) => {
+        const id = need[idx]!;
+        if (res.status === "fulfilled" && res.value?.creator) {
+          next[id] = res.value.creator as User;
+        }
+      });
+      setCreators(next);
+    };
+    fillCreators();
+  }, [filteredEntries]);
+
+  useEffect(() => {
+    const fillActionUsers = async () => {
+      const needIds = filteredEntries.map((e) => e.id).filter((id) => !(id in actionUsers));
+      if (needIds.length === 0) return;
+      const histories = await Promise.allSettled(needIds.map((id) => workflowService.history(id)));
+      const next: Record<number, User | null> = { ...actionUsers };
+      for (let i = 0; i < histories.length; i++) {
+        const res = histories[i]!;
+        const id = needIds[i]!;
+        if (res.status === "fulfilled") {
+          const hs = res.value as WorkflowHistory[];
+          const entry = filteredEntries.find((e) => e.id === id);
+          const targetStatus = entry?.status;
+          const match = hs.slice().reverse().find((h) => h.to_status === targetStatus) || (hs.length > 0 ? hs[hs.length - 1] : undefined);
+          const actor: User | null = (match && match.user) ? match.user : null;
+          next[id] = actor;
+        } else {
+          next[id] = null;
+        }
+      }
+      setActionUsers(next);
+    };
+    fillActionUsers();
+  }, [filteredEntries]);
+
+  const handleRowStatusChange = (entryId: number, toStatus: WorkflowStatus) => {
+    setSelectedEntryId(entryId);
+    setSelectedToStatus(toStatus);
+    setShowStatusModal(true);
   };
+
+  const handleSubmitStatus = async (comment: string) => {
+    if (!selectedEntryId || !selectedToStatus) return;
+    const from = (((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
+    if (!isValidTransition(from, selectedToStatus as WorkflowStatus, roleName)) {
+      setShowStatusModal(false);
+      setSelectedToStatus(null);
+      setSelectedEntryId(null);
+      return;
+    }
+    let updated: ContentEntry | null = null;
+    try {
+      if (selectedToStatus === "in_review") {
+        updated = await workflowService.requestReview(selectedEntryId, { comment });
+      } else if (selectedToStatus === "approved") {
+        updated = await workflowService.approve(selectedEntryId, { comment });
+      } else if (selectedToStatus === "published") {
+        updated = await workflowService.publish(selectedEntryId, { comment });
+      } else if (selectedToStatus === "rejected") {
+        if (roleName === "editor" && from === "in_review") {
+          updated = await workflowService.changeStatus(selectedEntryId, { status: "rejected", comment });
+        } else {
+          updated = await workflowService.reject(selectedEntryId, { comment });
+        }
+      } else {
+        updated = await workflowService.changeStatus(selectedEntryId, { status: selectedToStatus, comment });
+      }
+      if (updated) {
+        setEntries((prev) => prev.map((e) => (e.id === updated!.id ? updated! : e)));
+      }
+    } finally {
+      setShowStatusModal(false);
+      setSelectedToStatus(null);
+      setSelectedEntryId(null);
+    }
+  };
+
+  // Stats
+  const stats = useMemo(() => ({
+    total: entries.length,
+    draft: entries.filter((e) => e.status === "draft").length,
+    inReview: entries.filter((e) => e.status === "in_review").length,
+    readyForApproval: entries.filter((e) => e.status === "ready_for_approval").length,
+    approved: entries.filter((e) => e.status === "approved").length,
+    published: entries.filter((e) => e.status === "published").length,
+    rejected: entries.filter((e) => e.status === "rejected").length,
+  }), [entries]);
 
   const handleView = (entryId: number) => {
     router.push(`/workflow-management/${entryId}`);
   };
+
+  
 
   return (
     <div className="space-y-6">
@@ -201,7 +343,7 @@ export default function WorkflowManagementPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Content Types</SelectItem>
-              {dummyContentTypes.map((type) => (
+              {(contentTypes || []).map((type) => (
                 <SelectItem key={type.id} value={type.id.toString()}>
                   {type.name}
                 </SelectItem>
@@ -221,6 +363,7 @@ export default function WorkflowManagementPage() {
               <th className="py-3 px-4 font-medium">Status</th>
               <th className="py-3 px-4 font-medium">Creator</th>
               <th className="py-3 px-4 font-medium">Last Updated</th>
+              <th className="py-3 px-4 font-medium">Action By</th>
               <th className="py-3 px-4 font-medium text-center">Actions</th>
             </tr>
           </thead>
@@ -237,12 +380,25 @@ export default function WorkflowManagementPage() {
                 >
                   <td className="py-3 px-4">
                     <p className="font-medium text-[var(--foreground)]">
-                      {entry.title}
+                      {(() => {
+                        const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+                        const cands = ["title", "judul", "name", "meta_title"] as const;
+                        for (const key of cands) {
+                          const v = obj[key];
+                          if (typeof v === "string" && v.trim().length > 0) return v as string;
+                        }
+                        for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) return v; }
+                        return `Entry #${entry.id}`;
+                      })()}
                     </p>
                   </td>
                   <td className="py-3 px-4">
                     <span className="text-[var(--muted-foreground)]">
-                      {entry.contentType.name}
+                      {(() => {
+                        const id = entry.content_type_id;
+                        const ct = (contentTypes || []).find((c) => c.id === id);
+                        return ct ? ct.name : "";
+                      })()}
                     </span>
                   </td>
                   <td className="py-3 px-4">
@@ -252,24 +408,39 @@ export default function WorkflowManagementPage() {
                     <div className="flex items-center gap-2">
                       <Avatar className="w-8 h-8">
                         <AvatarFallback className="text-xs">
-                          {getInitials(entry.creator.name)}
+                          {(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            const nm = (user?.name || "").replace(/[^A-Za-z ]/g, "");
+                            return getInitials(nm || "Unknown");
+                          })()}
                         </AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="text-sm text-[var(--foreground)]">
-                          {entry.creator.name}
-                        </p>
-                        <p className="text-xs text-[var(--muted-foreground)]">
-                          {entry.creator.email}
+                          {(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            const name = user?.name || "Unknown";
+                            const email = user?.email || "";
+                            return email ? `${name} - ${email}` : String(name);
+                          })()}
                         </p>
                       </div>
                     </div>
                   </td>
                   <td className="py-3 px-4 text-[var(--muted-foreground)]">
-                    {formatDate(entry.updatedAt)}
+                    {new Date(entry.updated_at || Date.now()).toLocaleDateString()}
+                  </td>
+                  <td className="py-3 px-4">
+                    {(() => {
+                      const actor = actionUsers[entry.id];
+                      if (!actor) return "-";
+                      const name = actor.name || "";
+                      const email = actor.email || "";
+                      return email ? `${name} - ${email}` : name || "-";
+                    })()}
                   </td>
                   <td className="py-3 px-4 text-center">
-                    <div className="flex justify-center gap-2">
+                    <div className="flex items-center justify-center gap-2">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -279,6 +450,74 @@ export default function WorkflowManagementPage() {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
+                      {(() => {
+                        const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
+                        const allow = status === "draft" && can("ContentEntry", "update") && isValidTransition(status, "in_review", roleName);
+                        return allow;
+                      })() && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleRowStatusChange(entry.id, "in_review")}
+                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-blue-600 hover:!bg-blue-700 active:!bg-blue-800 !text-white !border-blue-600 hover:!border-blue-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                        >
+                          Request Review
+                        </Button>
+                      )}
+                      {(() => {
+                        const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
+                        const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "ready_for_approval", roleName);
+                        return allow;
+                      })() && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleRowStatusChange(entry.id, "ready_for_approval")}
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer !text-xs !px-3 !py-1..."
+                          >
+                            Ready for Approval
+                          </Button>
+                          {(() => {
+                            const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
+                            const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "rejected", roleName);
+                            return allow;
+                          })() && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRowStatusChange(entry.id, "rejected")}
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--danger)] hover:!bg-[color-mix(in srgb, var(--danger) 85%, black)] active:!bg-[color-mix(in srgb, var(--danger) 75%, black)] !text-white !bo..."
+                          >
+                            Reject
+                          </Button>
+                          )}
+                          {(() => {
+                            const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
+                            const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "draft", roleName);
+                            return allow;
+                          })() && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRowStatusChange(entry.id, "draft")}
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                          >
+                            Back to Draft
+                          </Button>
+                          )}
+                        </>
+                      )}
+                      {(() => {
+                        const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
+                        const allow = status === "rejected" && can("ContentEntry", "update") && isValidTransition(status, "draft", roleName);
+                        return allow;
+                      })() && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleRowStatusChange(entry.id, "draft")}
+                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                        >
+                          Back to Draft
+                        </Button>
+                      )}
+                      
                     </div>
                   </td>
                 </tr>
@@ -286,7 +525,7 @@ export default function WorkflowManagementPage() {
             ) : (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="text-center py-8 text-[var(--muted-foreground)]"
                 >
                   No entries found
@@ -296,7 +535,19 @@ export default function WorkflowManagementPage() {
           </tbody>
         </table>
       </div>
+      <StatusTransitionModal
+        isOpen={showStatusModal}
+        onClose={() => { setShowStatusModal(false); setSelectedToStatus(null); setSelectedEntryId(null); }}
+        fromStatus={(((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus}
+        toStatus={(((selectedToStatus || "draft") as string).toLowerCase().trim()) as WorkflowStatus}
+        requireComment={(() => {
+          const from = (((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
+          const to = (((selectedToStatus || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
+          return from === "in_review" && to === "rejected" && roleName === "editor";
+        })()}
+        onSubmit={handleSubmitStatus}
+      />
+      
     </div>
   );
 }
-

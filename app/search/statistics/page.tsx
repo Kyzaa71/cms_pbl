@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowLeft, RefreshCw } from "lucide-react";
 import { SearchStats } from "@/components/search/statistics/types";
-import { generateSearchStats } from "@/components/search/statistics/statistics-helpers";
+import { searchService } from "@/lib/services/search-service";
 import { StatisticsOverview } from "@/components/search/statistics/statistics-overview";
 import { PopularTermsList } from "@/components/search/statistics/popular-terms-list";
 import { ContentTypeStats } from "@/components/search/statistics/content-type-stats";
@@ -24,12 +24,14 @@ export default function SearchStatisticsPage() {
 
   const loadStatistics = async () => {
     setIsLoading(true);
-    // In a real app, this would fetch from: GET /search/stats
-    setTimeout(() => {
-      const data = generateSearchStats();
+    try {
+      const data = await searchService.stats();
       setStats(data);
+    } catch {
+      setStats(null);
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   if (isLoading) {

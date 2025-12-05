@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -23,48 +23,90 @@ import {
   XCircle,
   SendToBack,
 } from "lucide-react";
-import {
-  getContentTypeById,
-} from "@/components/content-builder/types";
-import {
-  getEntriesByContentType,
-  getEntryTitle,
-  getStatusBadgeColor,
-  getStatusLabel,
-  formatDate,
-  type WorkflowStatus,
-  type ContentEntry,
-  dummyUsers,
-} from "@/components/content-management/types";
-import { getInitials } from "@/components/user-management/types";
+import { getStatusBadgeColor, getStatusLabel } from "@/components/content-management/types";
+import { useContentType, useEntries, contentActions, useContentTypes } from "@/hooks/use-content";
+import { ContentEntry, ContentType, User } from "@/types/backend-models";
+import { contentService } from "@/lib/services/content-service";
+import { workflowService } from "@/lib/services/workflow-service";
+import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api-client";
+ 
 
 export default function ContentEntriesPage() {
   const params = useParams();
   const router = useRouter();
-  const contentTypeId = parseInt(params.contentTypeId as string);
+  const { can, user, getCurrentUser } = useAuth();
+  
+  const rawParam = params.contentTypeId as string;
+  const { data: allCTs } = useContentTypes();
+  const [resolvedId, setResolvedId] = useState<number | null>(null);
 
-  const [contentType, setContentType] = useState<any>(null);
-  const [entries, setEntries] = useState<ContentEntry[]>([]);
+  // Resolve param: accept numeric id or slug
+  useEffect(() => {
+    if (!rawParam) return;
+    const isNumeric = /^\d+$/.test(rawParam);
+    if (isNumeric) {
+      setResolvedId(parseInt(rawParam, 10));
+      return;
+    }
+    if (allCTs && allCTs.length > 0) {
+      const found = allCTs.find((ct) => ct.slug === rawParam);
+      setResolvedId(found ? found.id : null);
+    }
+  }, [rawParam, allCTs]);
+
+  const { data: fetchedCT } = useContentType(resolvedId || 0);
+  const [contentType, setContentType] = useState<ContentType | null>(null);
+  const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [createdByFilter, setCreatedByFilter] = useState<string>("all");
+  const [creators, setCreators] = useState<Record<number, User>>({});
+  const entriesParams = useMemo(() => {
+    return { page, limit: 10, status: statusFilter !== "all" ? statusFilter : undefined } as { page?: number; limit?: number; status?: string };
+  }, [page, statusFilter]);
+  const { data: entries, meta, error: entriesError, refetch } = useEntries(resolvedId || 0, entriesParams);
 
   useEffect(() => {
-    const ct = getContentTypeById(contentTypeId);
-    setContentType(ct);
-    
-    if (contentTypeId) {
-      const entriesData = getEntriesByContentType(contentTypeId);
-      setEntries(entriesData);
-    }
-  }, [contentTypeId]);
+    if (fetchedCT) setContentType(fetchedCT);
+  }, [fetchedCT]);
+  useEffect(() => {
+    const fillCreators = async () => {
+      const targets = entries.filter((e) => !e.creator?.id);
+      if (targets.length === 0) return;
+      const results = await Promise.allSettled<ContentEntry>(targets.map((e) => contentService.getEntry(e.id)));
+      const next: Record<number, User> = { ...creators };
+      results.forEach((res) => {
+        if (res.status === "fulfilled") {
+          const creator = res.value.creator as User | undefined;
+          const cid = creator?.id;
+          if (typeof cid === "number") next[cid] = creator as User;
+        }
+      });
+      setCreators(next);
+    };
+    fillCreators();
+  }, [entries]);
+  // Removed auto refresh to avoid spamming /auth/refresh and hitting rate limit
+  
 
   // Filter entries
   const filteredEntries = entries.filter((entry) => {
-    const title = getEntryTitle(entry);
+    const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+    const cands = ["title", "judul", "name", "meta_title"] as const;
+    let title = "";
+    for (const key of cands) {
+      const v = obj[key];
+      if (typeof v === "string" && v.trim().length > 0) { title = v; break; }
+    }
+    if (!title) {
+      for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) { title = v; break; } }
+    }
+    if (!title) title = `Entry #${entry.id}`;
     const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || entry.status === statusFilter;
-    const matchesCreator = createdByFilter === "all" || entry.createdBy.toString() === createdByFilter;
+    const matchesStatus = statusFilter === "all" || entry.status === (statusFilter as unknown as string);
+    const createdById = typeof entry.created_by === "number" ? String(entry.created_by) : "";
+    const matchesCreator = createdByFilter === "all" || createdById === createdByFilter || (entry.creator?.id && String(entry.creator.id) === createdByFilter);
     return matchesSearch && matchesStatus && matchesCreator;
   });
 
@@ -81,32 +123,79 @@ export default function ContentEntriesPage() {
 
   // Handlers
   const handleView = (entryId: number) => {
-    router.push(`/content-management/${contentTypeId}/entries/${entryId}`);
+    if (!resolvedId) return;
+    router.push(`/content-management/${resolvedId}/entries/${entryId}`);
   };
 
   const handleEdit = (entryId: number) => {
-    router.push(`/content-management/${contentTypeId}/entries/${entryId}`);
+    if (!resolvedId) return;
+    router.push(`/content-management/${resolvedId}/entries/${entryId}?mode=edit`);
   };
 
-  const handleDelete = (entry: ContentEntry) => {
+  const handleDelete = async (entry: ContentEntry) => {
+    if (!can("ContentEntry", "delete")) { alert("no permission"); return; }
     if (entry.status === "published") {
       alert("Cannot delete published entries. Please unpublish first.");
       return;
     }
 
     if (confirm(`Are you sure you want to delete this entry?`)) {
-      // In a real app, this would call an API
-      const updatedEntries = entries.filter((e) => e.id !== entry.id);
-      setEntries(updatedEntries);
-      console.log("Delete entry:", entry.id);
+      await contentActions.deleteEntry(entry.id);
+      refetch();
     }
   };
+
+  // Quick workflow actions
+  const handleStatusChange = async (entry: ContentEntry, to: "in_review" | "ready_for_approval" | "approved" | "published" | "rejected" | "draft") => {
+    let updated: ContentEntry | null = null;
+    if (to === "in_review") {
+      updated = await workflowService.requestReview(entry.id, {});
+    } else if (to === "ready_for_approval") {
+      updated = await workflowService.changeStatus(entry.id, { status: "ready_for_approval" });
+    } else if (to === "approved") {
+      updated = await workflowService.approve(entry.id, {});
+  } else if (to === "published") {
+    updated = await workflowService.publish(entry.id, {});
+  } else if (to === "rejected") {
+    const reason = prompt("Reason to reject?") || "";
+    const roleNameRaw = (user?.role?.name || "").toLowerCase().trim();
+    const roleName = roleNameRaw || "viewer";
+    const from = (entry.status || "draft").toLowerCase().trim();
+    if (roleName === "editor" && from === "in_review") {
+      updated = await workflowService.changeStatus(entry.id, { status: "rejected", comment: reason || "Rejected" });
+    } else {
+      updated = await workflowService.reject(entry.id, { comment: reason || "Rejected" });
+    }
+  } else if (to === "draft") {
+    updated = await workflowService.changeStatus(entry.id, { status: "draft" });
+  }
+    if (updated) {
+      // refresh list
+      await refetch();
+    }
+  };
+
+  if (resolvedId === null) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-[var(--muted-foreground)]">Content type not found</p>
+          <Link href="/content-management">
+            <Button variant="outline" className="mt-4">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Content Types
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!contentType) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <p className="text-[var(--muted-foreground)]">Content type not found</p>
+          <p className="text-[var(--muted-foreground)]">Loading content type...</p>
           <Link href="/content-management">
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -141,12 +230,14 @@ export default function ContentEntriesPage() {
               </p>
           </div>
         </div>
-        <Link href={`/content-management/${contentTypeId}/create`}>
-          <Button className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Create Entry
-          </Button>
-        </Link>
+        {can("ContentEntry", "create") && (
+          <Link href={`/content-management/${resolvedId}/create`}>
+            <Button onClick={() => router.push(`/content-management/${resolvedId}/create`)} className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Create Entry
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -256,15 +347,35 @@ export default function ContentEntriesPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Creators</SelectItem>
-              {dummyUsers.map((user) => (
-                <SelectItem key={user.id} value={user.id.toString()}>
-                  {user.name}
-                </SelectItem>
-              ))}
+              {(() => {
+                const map = new Map<number, { id: number; name: string }>();
+                for (const e of entries as ContentEntry[]) {
+                  const u = e.creator ?? (typeof e.created_by === "number" ? creators[e.created_by] : undefined);
+                  const name = u?.name || "Unknown";
+                  const email = u?.email || "";
+                  const display = email ? `${name} - ${email}` : name;
+                  const uid = u?.id ?? (typeof e.created_by === "number" ? e.created_by : undefined);
+                  if (typeof uid === "number" && !map.has(uid)) {
+                    map.set(uid, { id: uid, name: display });
+                  }
+                }
+                return Array.from(map.values()).map((user) => (
+                  <SelectItem key={user.id} value={String(user.id)}>
+                    {user.name}
+                  </SelectItem>
+                ));
+              })()}
             </SelectContent>
           </Select>
         </div>
       </Card>
+
+      {/* Error States */}
+      {entriesError && (
+        <Card className="p-3 border border-[var(--danger)] bg-[color-mix(in srgb, var(--danger) 10%, var(--card-bg))] text-[var(--foreground)]">
+          <div className="text-sm">Tidak dapat memuat entries untuk content type ini. Pastikan Anda sudah login dan memiliki akses.</div>
+        </Card>
+      )}
 
       {/* Entries Table */}
       <div className="overflow-hidden border border-[var(--border)] rounded-md shadow-sm">
@@ -285,13 +396,22 @@ export default function ContentEntriesPage() {
                   colSpan={5}
                   className="text-center py-8 text-[var(--muted-foreground)]"
                 >
-                  No entries found. Create your first entry to get started.
+                  Tidak ada data entries untuk content type ini. Gunakan tombol &quot;Create Entry&quot; di atas untuk membuat entri pertama.
                 </td>
               </tr>
             ) : (
               filteredEntries.map((entry, index) => {
-                const title = getEntryTitle(entry);
-                const creator = entry.creator || dummyUsers.find(u => u.id === entry.createdBy);
+                const obj = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : {};
+                const cands = ["title", "judul", "name", "meta_title"] as const;
+                let title = "";
+                for (const key of cands) {
+                  const v = obj[key];
+                  if (typeof v === "string" && v.trim().length > 0) { title = v; break; }
+                }
+                if (!title) {
+                  for (const v of Object.values(obj)) { if (typeof v === "string" && v.trim().length > 0) { title = v; break; } }
+                }
+                if (!title) title = `Entry #${entry.id}`;
                 return (
                   <tr
                     key={entry.id}
@@ -317,25 +437,30 @@ export default function ContentEntriesPage() {
 
                     {/* Created By */}
                     <td className="py-3 px-4">
-                      {creator && (
-                        <div className="flex items-center gap-2">
-                          <Avatar className="w-6 h-6">
-                            <AvatarImage src={creator.avatar} alt={creator.name} />
-                            <AvatarFallback className="bg-[var(--primary)] text-[var(--button-text)] text-xs">
-                              {getInitials(creator.name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm text-[var(--foreground)]">
-                            {creator.name}
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const cid = typeof entry.created_by === "string" ? parseInt(entry.created_by, 10) : entry.created_by;
+                        const u = entry.creator ?? (typeof cid === "number" ? creators[cid] : undefined);
+                        const name = u?.name || "Unknown";
+                        const email = u?.email || "";
+                        const display = email ? `${name} - ${email}` : name;
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Avatar className="w-6 h-6">
+                              <AvatarImage src={u?.profile || ""} alt={name} />
+                              <AvatarFallback className="bg-[var(--primary)] text-[var(--button-text)] text-xs">
+                                {typeof name === "string" ? name.slice(0, 2).toUpperCase() : ""}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-sm text-[var(--foreground)]">{display}</span>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Updated */}
                     <td className="py-3 px-4 text-[var(--muted-foreground)]">
-                      {formatDate(entry.updatedAt)}
-                    </td>
+                      {new Date(entry.updated_at || Date.now()).toLocaleDateString()}
+            </td>
 
                     {/* Actions */}
                     <td className="py-3 px-4 text-center">
@@ -349,24 +474,29 @@ export default function ContentEntriesPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(entry.id)}
-                          className="text-yellow-600 hover:text-[color-mix(in srgb, yellow 80%, black)] dark:text-yellow-500"
-                          title="Edit"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(entry)}
-                          className="text-[var(--danger)] hover:text-[color-mix(in srgb, var(--danger) 80%, black)]"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {can("ContentEntry", "update") && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(entry.id)}
+                            className="text-yellow-600 hover:text-[color-mix(in srgb, yellow 80%, black)] dark:text-yellow-500"
+                            title="Edit"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {can("ContentEntry", "delete") && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(entry)}
+                            className="text-[var(--danger)] hover:text-[color-mix(in srgb, var(--danger) 80%, black)]"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Workflow actions removed from Content Management */}
                       </div>
                     </td>
                   </tr>
@@ -376,7 +506,16 @@ export default function ContentEntriesPage() {
           </tbody>
         </table>
       </div>
+
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-sm text-[var(--muted-foreground)]">
+          Page {meta.page || page} of {meta.total_pages || 1}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={(meta.page || page) <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</Button>
+          <Button variant="outline" disabled={(meta.page || page) >= (meta.total_pages || 1)} onClick={() => setPage((p) => p + 1)}>Next</Button>
+        </div>
+      </div>
     </div>
   );
 }
-

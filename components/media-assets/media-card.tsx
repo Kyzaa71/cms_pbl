@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MediaFile, formatFileSize, getFileIcon, getMediaTypeCategory } from "./types";
+import { MediaFile, formatFileSize, getMediaTypeCategory } from "./types";
 import { Eye, Pencil, Trash2, Image as ImageIcon, Video, FileText } from "lucide-react";
+import { getBaseUrl } from "@/lib/api-client";
 
 interface MediaCardProps {
   media: MediaFile;
@@ -26,6 +27,28 @@ export function MediaCard({
   const [isHovered, setIsHovered] = useState(false);
   const category = getMediaTypeCategory(media.type);
   const isImage = category === "image";
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const BASE_URL = getBaseUrl();
+
+  const normalizeUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const cleaned = url.trim().replace(/[\\]+/g, "/");
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+    if (cleaned.startsWith("/")) return `${BASE_URL}${cleaned}`;
+    return `${BASE_URL}/${cleaned}`;
+  };
+
+  const proxiedUrl = (url?: string): string | null => {
+    const u = normalizeUrl(url);
+    return u ? `/api/media-proxy?url=${encodeURIComponent(u)}` : null;
+  };
+
+  useEffect(() => {
+    const revoked: string | null = null;
+    const url = proxiedUrl(media.url);
+    setPreviewSrc(isImage ? url : null);
+    return () => { if (revoked) URL.revokeObjectURL(revoked); };
+  }, [media, isImage, proxiedUrl]);
 
   return (
     <Card
@@ -38,15 +61,16 @@ export function MediaCard({
     >
       {/* Thumbnail/Preview */}
       <div className="relative aspect-video bg-[var(--card-bg-inner)] overflow-hidden">
-        {isImage ? (
+        {isImage && previewSrc ? (
           <img
-            src={media.url}
+            src={previewSrc}
             alt={media.alt}
             className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x300?text=Image";
-            }}
           />
+        ) : isImage ? (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--card-bg)] to-[var(--card-bg-inner)]">
+            <ImageIcon className="w-16 h-16 text-[var(--muted-foreground)]" />
+          </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--card-bg)] to-[var(--card-bg-inner)]">
             {category === "video" ? (

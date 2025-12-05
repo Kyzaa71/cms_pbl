@@ -1,37 +1,59 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { RoleDetailView } from "@/components/role-permissions/role-detail-view";
-import { dummyRoles, Role, formatRoleName, countUsersWithRole } from "@/components/role-permissions/types";
+import type { Role as UIRole, Permission as UIPermission } from "@/components/role-permissions/types";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { roleService, userService } from "@/lib/services/user-service";
+import type { Role as BackendRole, Permission as BackendPermission } from "@/types/backend-models";
 
 export default function RoleDetailPage() {
   const params = useParams();
   const router = useRouter();
   const roleId = params?.id ? parseInt(params.id as string) : null;
-
-  const role = roleId ? dummyRoles.find((r) => r.id === roleId) : null;
+  const [role, setRole] = useState<UIRole | null>(null);
+  useEffect(() => {
+    if (!roleId) return;
+    Promise.all([roleService.getById(roleId), userService.list()])
+      .then(([r, users]) => {
+        const perms: UIPermission[] = (r.permissions || []).map((p: BackendPermission) => ({
+          id: p.id,
+          roleId: p.role_id,
+          module: p.module as any,
+          action: p.action as any,
+          fieldScope: p.field_scope as any,
+          allowedFields: Array.isArray(p.allowed_fields) ? (p.allowed_fields as string[]) : undefined,
+          deniedFields: Array.isArray(p.denied_fields) ? (p.denied_fields as string[]) : undefined,
+          contentTypeIds: Array.isArray(p.content_type_ids) ? (p.content_type_ids as number[]) : undefined,
+        }));
+        setRole({ id: r.id, name: r.name, description: r.description, permissions: perms, createdAt: r.created_at, updatedAt: r.updated_at });
+        // Optionally compute assigned user count for role
+        const count = (users as BackendUser[]).filter((u) => u.role_id === r.id).length;
+        // Pass via props by setting in local state or keep logic in detail view via props
+        setAssignedCount(count);
+      })
+      .catch(() => setRole(null));
+  }, [roleId]);
 
   const handleDuplicate = () => {
     router.push(`/role-permissions/create?duplicate=${roleId}`);
   };
 
-  const handleDelete = () => {
-    const userCount = countUsersWithRole(roleId || 0);
-    if (userCount > 0) {
-      alert(
-        `Cannot delete role "${formatRoleName(role?.name || "")}" because it is assigned to ${userCount} user${userCount !== 1 ? "s" : ""}.`
-      );
+  const [assignedCount, setAssignedCount] = useState<number>(0);
+  const handleDelete = async () => {
+    if (!roleId) return;
+    if (assignedCount > 0) {
+      alert(`Cannot delete role because it is assigned to ${assignedCount} user${assignedCount !== 1 ? "s" : ""}.`);
       return;
     }
-
-    if (
-      confirm(`Are you sure you want to delete role "${formatRoleName(role?.name || "")}"?`)
-    ) {
-      // In a real app, this would call an API
-      console.log("Delete role:", roleId);
+    if (!confirm("Are you sure you want to delete this role?")) return;
+    try {
+      await roleService.remove(roleId);
       router.push("/role-permissions");
+    } catch (e) {
+      alert((e as any)?.message || "Failed to delete role");
     }
   };
 
@@ -60,7 +82,7 @@ export default function RoleDetailPage() {
       </div>
 
       {/* Detail View */}
-      <RoleDetailView role={role || null} onDuplicate={handleDuplicate} onDelete={handleDelete} />
+      <RoleDetailView role={role || null} onDuplicate={handleDuplicate} onDelete={handleDelete} userCount={assignedCount} />
     </div>
   );
 }

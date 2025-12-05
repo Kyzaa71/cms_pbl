@@ -1,17 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Filter, Clock } from "lucide-react";
 import { AssignmentsList } from "@/components/workflow-management/assignments-list";
-import {
-  dummyAssignments,
-  getAssignmentsByUserId,
-  currentUserRole,
-} from "@/components/workflow-management/types";
+import { workflowService } from "@/lib/services/workflow-service";
+import type { WorkflowAssignment } from "@/types/backend-models";
 
 // Mock current user ID (in real app, this would come from auth context)
 const currentUserId = 2;
@@ -19,25 +16,31 @@ const currentUserId = 2;
 export default function AssignmentsPage() {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [assignments, setAssignments] = useState<WorkflowAssignment[]>([]);
 
-  // Filter assignments
-  const myAssignments = getAssignmentsByUserId(currentUserId);
-  const filteredAssignments =
-    statusFilter === "all"
-      ? myAssignments
-      : myAssignments.filter((a) => a.status === statusFilter);
+  useEffect(() => {
+    const load = async () => {
+      const status = statusFilter === "all" ? undefined : statusFilter;
+      const list = await workflowService.myAssignments(status);
+      setAssignments(list);
+    };
+    load();
+  }, [statusFilter]);
 
-  const handleComplete = (assignmentId: number) => {
-    if (confirm("Mark this assignment as completed?")) {
-      console.log("Complete assignment:", assignmentId);
-      // In real app, this would call API
-    }
+  const filteredAssignments = assignments;
+
+  const handleComplete = async (assignmentId: number) => {
+    if (!confirm("Mark this assignment as completed?")) return;
+    await workflowService.completeAssignment(assignmentId);
+    const status = statusFilter === "all" ? undefined : statusFilter;
+    const list = await workflowService.myAssignments(status);
+    setAssignments(list);
   };
 
   const stats = {
-    total: myAssignments.length,
-    pending: myAssignments.filter((a) => a.status === "pending").length,
-    completed: myAssignments.filter((a) => a.status === "completed").length,
+    total: assignments.length,
+    pending: assignments.filter((a) => a.status === "pending").length,
+    completed: assignments.filter((a) => a.status === "completed").length,
   };
 
   return (

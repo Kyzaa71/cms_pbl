@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,31 +12,49 @@ import {
   History,
   MessageSquare,
   UserPlus,
-  Clock,
+  
 } from "lucide-react";
-import {
-  ContentEntry,
-  formatDate,
-  formatDateTime,
-  getInitials,
-  getHistoryByEntryId,
-  getCommentsByEntryId,
-} from "./types";
+import { formatDateTime, getInitials, WorkflowStatus } from "./types";
 import { StatusBadge } from "./status-badge";
 import { WorkflowActions } from "./workflow-actions";
 import { StatusTransitionModal } from "./status-transition-modal";
-import { WorkflowStatus } from "./types";
+import type { ContentEntry, WorkflowHistory, WorkflowComment } from "@/types/backend-models";
+import { workflowService } from "@/lib/services/workflow-service";
+import { useAuth } from "@/hooks/use-auth";
+import { contentService } from "@/lib/services/content-service";
 
 interface EntryDetailViewProps {
   entry: ContentEntry | null;
 }
 
 export function EntryDetailView({ entry }: EntryDetailViewProps) {
-  const router = useRouter();
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [selectedToStatus, setSelectedToStatus] = useState<WorkflowStatus | null>(null);
+  const [history, setHistory] = useState<WorkflowHistory[]>([]);
+  const [comments, setComments] = useState<WorkflowComment[]>([]);
+  const [contentTypeName, setContentTypeName] = useState<string>("");
+  const [viewEntry, setViewEntry] = useState<ContentEntry | null>(entry);
+  const { user } = useAuth();
+  useEffect(() => { setViewEntry(entry); }, [entry]);
+  useEffect(() => {
+    if (viewEntry?.id) {
+      workflowService.history(viewEntry.id).then(setHistory).catch(() => setHistory([]));
+      workflowService.comments(viewEntry.id).then(setComments).catch(() => setComments([]));
+    }
+  }, [viewEntry?.id]);
 
-  if (!entry) {
+  useEffect(() => {
+    if (viewEntry?.content_type_id) {
+      contentService
+        .getContentType(viewEntry.content_type_id)
+        .then((ct) => setContentTypeName(ct.name))
+        .catch(() => setContentTypeName(""));
+    } else {
+      setContentTypeName("");
+    }
+  }, [viewEntry?.content_type_id]);
+
+  if (!viewEntry) {
     return (
       <div className="text-center py-8 text-[var(--muted-foreground)]">
         Entry not found
@@ -45,23 +62,49 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
     );
   }
 
-  const history = getHistoryByEntryId(entry.id);
-  const comments = getCommentsByEntryId(entry.id);
-
   const handleStatusChange = (toStatus: WorkflowStatus) => {
     setSelectedToStatus(toStatus);
     setShowStatusModal(true);
   };
 
-  const handleStatusSubmit = (comment: string) => {
-    console.log("Change status:", entry.id, selectedToStatus, comment);
-    // In real app, this would call API
-    // For now, just close modal
+  const handleStatusSubmit = async (comment: string) => {
+    if (!viewEntry || !selectedToStatus) return;
+    let updated: ContentEntry | null = null;
+    if (selectedToStatus === "in_review") {
+      updated = await workflowService.requestReview(viewEntry.id, { comment }).catch(() => null);
+    } else if (selectedToStatus === "approved") {
+      updated = await workflowService.approve(viewEntry.id, { comment }).catch(() => null);
+  } else if (selectedToStatus === "published") {
+    updated = await workflowService.publish(viewEntry.id, { comment }).catch(() => null);
+  } else if (selectedToStatus === "rejected") {
+    const roleName = ((user?.role?.name || "") as string).toLowerCase().trim() || "viewer";
+    const from = (viewEntry?.status || "draft") as WorkflowStatus;
+    if (roleName === "editor" && from === "in_review") {
+      updated = await workflowService.changeStatus(viewEntry.id, { status: "rejected", comment }).catch(() => null);
+    } else {
+      updated = await workflowService.reject(viewEntry.id, { comment }).catch(() => null);
+    }
+  } else {
+    updated = await workflowService.changeStatus(viewEntry.id, { status: selectedToStatus, comment }).catch(() => null);
+  }
+    if (updated) {
+      setViewEntry(updated);
+      workflowService.history(updated.id).then(setHistory).catch(() => setHistory([]));
+      workflowService.comments(updated.id).then(setComments).catch(() => setComments([]));
+      if (updated.content_type_id) {
+        contentService.getContentType(updated.content_type_id).then((ct) => setContentTypeName(ct.name)).catch(() => setContentTypeName(""));
+      }
+    }
     setShowStatusModal(false);
     setSelectedToStatus(null);
   };
 
-  const requireComment = selectedToStatus === "rejected";
+  const requireComment = (() => {
+    const roleName = ((user?.role?.name || "") as string).toLowerCase().trim() || "viewer";
+    const from = (viewEntry?.status || "draft") as WorkflowStatus;
+    const to = (selectedToStatus || "draft") as WorkflowStatus;
+    return from === "in_review" && to === "rejected" && roleName === "editor";
+  })();
 
   return (
     <div className="space-y-6">
@@ -69,15 +112,21 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
       <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
         <div className="flex items-start justify-between mb-6">
           <div className="flex-1">
-            <h2 className="text-2xl font-bold text-[var(--foreground)] mb-2">
-              {entry.title}
-            </h2>
+            {(() => {
+              const d = (typeof viewEntry.data === "object" && viewEntry.data) ? (viewEntry.data as Record<string, unknown>) : null;
+              const t = d ? d["title"] : undefined;
+              const n = d ? d["name"] : undefined;
+              const displayTitle = typeof t === "string" ? t : typeof n === "string" ? n : `Entry #${viewEntry.id}`;
+              return (
+                <h2 className="text-2xl font-bold text-[var(--foreground)] mb-2">{displayTitle}</h2>
+              );
+            })()}
             <div className="flex items-center gap-4 text-sm text-[var(--muted-foreground)]">
               <span className="flex items-center gap-1">
                 <FileText className="w-4 h-4" />
-                {entry.contentType.name}
+                {contentTypeName || "Unknown Content Type"}
               </span>
-              <StatusBadge status={entry.status} />
+              <StatusBadge status={viewEntry.status} />
             </div>
           </div>
         </div>
@@ -88,9 +137,9 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             Workflow Actions
           </h3>
           <WorkflowActions
-            currentStatus={entry.status}
+            currentStatus={viewEntry.status}
             onStatusChange={handleStatusChange}
-            entryId={entry.id}
+            entryId={viewEntry.id}
           />
         </div>
 
@@ -104,15 +153,15 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             <div className="flex items-center gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarFallback className="text-xs">
-                  {getInitials(entry.creator.name)}
+                  {getInitials(viewEntry.creator?.name || "Unknown")}
                 </AvatarFallback>
               </Avatar>
               <div>
                 <p className="font-medium text-[var(--foreground)]">
-                  {entry.creator.name}
+                  {viewEntry.creator?.name || "Unknown"}
                 </p>
                 <p className="text-sm text-[var(--muted-foreground)]">
-                  {entry.creator.email}
+                  {viewEntry.creator?.email || ""}
                 </p>
               </div>
             </div>
@@ -127,20 +176,20 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
               <div>
                 <span className="text-xs text-[var(--muted-foreground)]">Created: </span>
                 <span className="text-sm text-[var(--foreground)]">
-                  {formatDateTime(entry.createdAt)}
+                  {formatDateTime(viewEntry.created_at)}
                 </span>
               </div>
               <div>
                 <span className="text-xs text-[var(--muted-foreground)]">Updated: </span>
                 <span className="text-sm text-[var(--foreground)]">
-                  {formatDateTime(entry.updatedAt)}
+                  {formatDateTime(viewEntry.updated_at)}
                 </span>
               </div>
-              {entry.publishedAt && (
+              {viewEntry.published_at && (
                 <div>
                   <span className="text-xs text-[var(--muted-foreground)]">Published: </span>
                   <span className="text-sm text-[var(--foreground)]">
-                    {formatDateTime(entry.publishedAt)}
+                    {formatDateTime(viewEntry.published_at)}
                   </span>
                 </div>
               )}
@@ -161,7 +210,7 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             </div>
             <History className="w-8 h-8 text-[var(--primary)] opacity-60" />
           </div>
-          <Link href={`/workflow-management/${entry.id}/history`}>
+          <Link href={`/workflow-management/${viewEntry.id}/history`}>
             <Button variant="link" className="p-0 h-auto mt-2 text-[var(--primary)]">
               View Timeline →
             </Button>
@@ -178,7 +227,7 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             </div>
             <MessageSquare className="w-8 h-8 text-[var(--primary)] opacity-60" />
           </div>
-          <Link href={`/workflow-management/${entry.id}/comments`}>
+          <Link href={`/workflow-management/${viewEntry.id}/comments`}>
             <Button variant="link" className="p-0 h-auto mt-2 text-[var(--primary)]">
               View Comments →
             </Button>
@@ -197,8 +246,7 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             variant="link"
             className="p-0 h-auto mt-2 text-[var(--primary)]"
             onClick={() => {
-              // Open assign modal or navigate
-              console.log("Assign entry:", entry.id);
+              console.log("Assign entry:", viewEntry.id);
             }}
           >
             Assign Entry →
@@ -214,7 +262,7 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             setShowStatusModal(false);
             setSelectedToStatus(null);
           }}
-          fromStatus={entry.status}
+          fromStatus={viewEntry.status}
           toStatus={selectedToStatus}
           onSubmit={handleStatusSubmit}
           requireComment={requireComment}

@@ -1,17 +1,36 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { UserDetailView } from "@/components/user-management/user-detail-view";
-import { dummyUsers } from "@/components/user-management/types";
+import type { User as UIUser } from "@/components/user-management/types";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { userService } from "@/lib/services/user-service";
+import type { User as BackendUser } from "@/types/backend-models";
 
 export default function UserDetailPage() {
   const params = useParams();
   const router = useRouter();
   const userId = params?.id ? parseInt(params.id as string) : null;
-
-  const user = userId ? dummyUsers.find((u) => u.id === userId) : null;
+  const [user, setUser] = useState<UIUser | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    userService.getById(userId).then((u: BackendUser) => {
+      const mapped: UIUser = {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role?.name || String(u.role_id),
+        roleId: u.role_id,
+        status: (u.status as "active" | "inactive") || "active",
+        avatar: u.profile,
+        createdAt: u.created_at,
+        provider: u.provider,
+      };
+      setUser(mapped);
+    }).catch(() => setUser(null));
+  }, [userId]);
 
   return (
     <div className="space-y-6">

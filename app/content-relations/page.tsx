@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -9,50 +9,130 @@ import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Filter, Plus, Eye, Trash2, Link2 } from "lucide-react";
-import {
-  dummyRelations,
-  getRelationStats,
-  getRelationTypeLabel,
-  getRelationTypeColor,
-  formatDate,
-  RelationType,
-} from "@/components/content-relations/types";
-import { StatusBadge } from "@/components/workflow-management/status-badge";
+import { getRelationStats, getRelationTypeLabel, getRelationTypeColor, formatDate, RelationType } from "@/components/content-relations/types";
+import type { ContentRelation } from "@/types/backend-models";
 import { RelationForm } from "@/components/content-relations/relation-form";
+import { EntrySelector } from "@/components/content-relations/entry-selector";
+import { relationsService } from "@/lib/services/relations-service";
+import { contentService } from "@/lib/services/content-service";
+import { StatusBadge } from "@/components/workflow-management/status-badge";
+import { getStatusLabel } from "@/components/workflow-management/types";
+import { useContentTypes } from "@/hooks/use-content";
+import { useAuth } from "@/hooks/use-auth";
+import { searchService } from "@/lib/services/search-service";
 
 export default function ContentRelationsPage() {
   const router = useRouter();
-  const [relations] = useState(dummyRelations);
+  const searchParams = useSearchParams();
+  const { can, user, getCurrentUser } = useAuth();
+  const roleName = (user?.role?.name || "").toLowerCase();
+  const canModifyRelations = can("ContentEntry", "update") && roleName !== "seo_specialist";
+  const [relations, setRelations] = useState<ContentRelation[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [relationTypeFilter, setRelationTypeFilter] = useState<string>("all");
   const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [fromEntryId, setFromEntryId] = useState<number>(0);
+  const [entryMap, setEntryMap] = useState<Record<number, any>>({});
+  const { data: contentTypes } = useContentTypes();
+  const ctNameById = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const ct of contentTypes || []) m[ct.id] = ct.name;
+    return m;
+  }, [contentTypes]);
+
+  const titleOf = (e: any, fallbackId: number) => {
+    const d = (e?.data || {}) as Record<string, unknown>;
+    const keys = ["title", "name", "headline", "meta_title"];
+    for (const k of keys) {
+      const v = d[k];
+      if (typeof v === "string" && v.trim().length > 0) return v as string;
+    }
+    for (const [k, v] of Object.entries(d)) {
+      if (typeof v === "string" && v.trim().length > 0) return v as string;
+    }
+    return `Entry #${fallbackId}`;
+  };
+
+  useEffect(() => {
+    const fromParam = Number(searchParams.get("from") || 0);
+    if (fromParam && fromParam > 0) setFromEntryId(fromParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Do not persist or enforce the `from` param; keep the page clean by default
+  }, [fromEntryId]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        if (fromEntryId && fromEntryId > 0) {
+          const list = await relationsService.getRelations(fromEntryId);
+          setRelations(list);
+        } else {
+          const { entries } = await searchService.fullText({ q: "", limit: 25, page: 1 });
+          const rels = await Promise.all(entries.map((e) => relationsService.getRelations(e.id)));
+          setRelations(rels.flat());
+        }
+      } catch {
+        setRelations([]);
+      }
+    };
+    load();
+  }, [fromEntryId]);
+
+  useEffect(() => {
+    const ids = Array.from(new Set(relations.flatMap(r => [r.from_content_id, r.to_content_id])));
+    if (ids.length === 0) return;
+    let active = true;
+    (async () => {
+      const results = await Promise.allSettled(ids.map(id => contentService.getEntry(id)));
+      if (!active) return;
+      const map: Record<number, any> = {};
+      results.forEach((res, idx) => { if (res.status === "fulfilled") map[ids[idx]!] = res.value; });
+      setEntryMap(map);
+    })();
+    return () => { active = false; };
+  }, [relations]);
 
   // Filter relations
-  const filteredRelations = relations.filter((relation) => {
-    const matchesSearch =
-      relation.fromEntry?.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      relation.toEntry?.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRelationType =
-      relationTypeFilter === "all" || relation.relationType === relationTypeFilter;
-    const matchesContentType =
-      contentTypeFilter === "all" ||
-      relation.fromEntry?.contentTypeId.toString() === contentTypeFilter ||
-      relation.toEntry?.contentTypeId.toString() === contentTypeFilter;
-    return matchesSearch && matchesRelationType && matchesContentType;
-  });
+  const filteredRelations = useMemo(() => {
+    const qq = searchQuery.trim().toLowerCase();
+    return relations.filter((relation) => {
+      const fe = entryMap[relation.from_content_id];
+      const te = entryMap[relation.to_content_id];
+      const fromTitle = titleOf(fe, relation.from_content_id).toLowerCase();
+      const toTitle = titleOf(te, relation.to_content_id).toLowerCase();
+      const fromCt = (ctNameById[fe?.content_type_id || 0] || "").toLowerCase();
+      const toCt = (ctNameById[te?.content_type_id || 0] || "").toLowerCase();
+      const fromStatus = fe ? getStatusLabel(fe.status).toLowerCase() : "";
+      const toStatus = te ? getStatusLabel(te.status).toLowerCase() : "";
+      const matchesSearch = !qq ||
+        fromTitle.includes(qq) || toTitle.includes(qq) ||
+        fromCt.includes(qq) || toCt.includes(qq) ||
+        fromStatus.includes(qq) || toStatus.includes(qq);
+      const matchesRelationType = relationTypeFilter === "all" || relation.relation_type === relationTypeFilter;
+      const matchesContentType = contentTypeFilter === "all";
+      return matchesSearch && matchesRelationType && matchesContentType;
+    });
+  }, [relations, searchQuery, relationTypeFilter, contentTypeFilter, entryMap, ctNameById]);
 
   // Stats
-  const stats = getRelationStats();
+  const stats = getRelationStats(relations as any);
 
   const handleView = (entryId: number) => {
     router.push(`/content-relations/${entryId}`);
   };
 
-  const handleDelete = (relationId: number) => {
-    if (confirm("Are you sure you want to delete this relation?")) {
-      console.log("Delete relation:", relationId);
-      // In real app, this would call API: DELETE /content/relations/:relation_id
+  const handleDelete = async (relationId: number) => {
+    if (!confirm("Are you sure you want to delete this relation?")) return;
+    if (!canModifyRelations) { alert("no permission"); return; }
+    try {
+      await relationsService.deleteRelation(relationId);
+      setRelations((prev) => prev.filter((r) => r.id !== relationId));
+    } catch (e) {
+      alert("no permission");
     }
   };
 
@@ -68,14 +148,33 @@ export default function ContentRelationsPage() {
             Manage relationships and connections between content entries
           </p>
         </div>
-        <Button
-          className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] flex items-center gap-2 transition-colors"
-          onClick={() => setShowCreateModal(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Create Relation
-        </Button>
+        {canModifyRelations && (
+          <Button
+            className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] flex items-center gap-2 transition-colors"
+            onClick={() => setShowCreateModal(true)}
+            >
+            <Plus className="w-4 h-4" />
+            Create Relation
+          </Button>
+        )}
       </div>
+
+      {/* Select From Entry (optional) */}
+      <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)]">
+        <div className="flex items-center justify-between gap-3">
+          <EntrySelector
+            value={fromEntryId}
+            onChange={setFromEntryId}
+            label="From Entry (optional)"
+            placeholder="Search for source entry..."
+          />
+          <div className="mt-6 flex items-center gap-2">
+            <Button variant="outline" onClick={() => setFromEntryId(0)} className="text-sm">
+              Show All Relations
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -168,15 +267,13 @@ export default function ContentRelationsPage() {
                   {/* From Entry */}
                   <td className="py-3 px-4">
                     <div>
-                      <p className="font-medium text-[var(--foreground)]">
-                        {relation.fromEntry?.title || `Entry #${relation.fromContentId}`}
-                      </p>
+                      <p className="font-medium text-[var(--foreground)]">{titleOf(entryMap[relation.from_content_id], relation.from_content_id)}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-[var(--muted-foreground)]">
-                          {relation.fromEntry?.contentType.name || "Unknown"}
+                          {ctNameById[entryMap[relation.from_content_id]?.content_type_id || 0] || (entryMap[relation.from_content_id]?.content_type_id ? `Content Type #${entryMap[relation.from_content_id]?.content_type_id}` : "-")}
                         </span>
-                        {relation.fromEntry && (
-                          <StatusBadge status={relation.fromEntry.status} />
+                        {entryMap[relation.from_content_id] && (
+                          <StatusBadge status={entryMap[relation.from_content_id].status as any} />
                         )}
                       </div>
                     </div>
@@ -184,23 +281,21 @@ export default function ContentRelationsPage() {
 
                   {/* Relation Type */}
                   <td className="py-3 px-4 text-center">
-                    <Badge className={getRelationTypeColor(relation.relationType)}>
-                      {getRelationTypeLabel(relation.relationType)}
+                    <Badge className={getRelationTypeColor(relation.relation_type as RelationType)}>
+                      {getRelationTypeLabel(relation.relation_type as RelationType)}
                     </Badge>
                   </td>
 
                   {/* To Entry */}
                   <td className="py-3 px-4">
                     <div>
-                      <p className="font-medium text-[var(--foreground)]">
-                        {relation.toEntry?.title || `Entry #${relation.toContentId}`}
-                      </p>
+                      <p className="font-medium text-[var(--foreground)]">{titleOf(entryMap[relation.to_content_id], relation.to_content_id)}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-[var(--muted-foreground)]">
-                          {relation.toEntry?.contentType.name || "Unknown"}
+                          {ctNameById[entryMap[relation.to_content_id]?.content_type_id || 0] || (entryMap[relation.to_content_id]?.content_type_id ? `Content Type #${entryMap[relation.to_content_id]?.content_type_id}` : "-")}
                         </span>
-                        {relation.toEntry && (
-                          <StatusBadge status={relation.toEntry.status} />
+                        {entryMap[relation.to_content_id] && (
+                          <StatusBadge status={entryMap[relation.to_content_id].status as any} />
                         )}
                       </div>
                     </div>
@@ -208,32 +303,32 @@ export default function ContentRelationsPage() {
 
                   {/* Created */}
                   <td className="py-3 px-4 text-[var(--muted-foreground)]">
-                    {formatDate(relation.createdAt)}
+                    {formatDate(relation.created_at)}
                   </td>
 
                   {/* Actions */}
                   <td className="py-3 px-4 text-center">
                     <div className="flex justify-center gap-2">
-                      {relation.fromEntry && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleView(relation.fromContentId)}
-                          className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)]"
-                          title="View Entry Relations"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDelete(relation.id)}
-                        className="text-[var(--danger)] hover:text-[color-mix(in srgb, var(--danger) 80%, black)]"
-                        title="Delete Relation"
+                        onClick={() => handleView(relation.from_content_id)}
+                        className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)]"
+                        title="View Entry Relations"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Eye className="h-4 w-4" />
                       </Button>
+                      {canModifyRelations && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(relation.id)}
+                          className="text-[var(--danger)] hover:text-[color-mix(in srgb, var(--danger) 80%, black)]"
+                          title="Delete Relation"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -253,7 +348,7 @@ export default function ContentRelationsPage() {
       </div>
 
       {/* Create Relation Modal */}
-      {showCreateModal && (
+      {showCreateModal && canModifyRelations && (
         <Modal
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
@@ -261,11 +356,16 @@ export default function ContentRelationsPage() {
           size="lg"
         >
           <RelationForm
-            onSubmit={(data) => {
-              console.log("Create relation:", data);
-              // In real app, this would call API: POST /content/:from_content_id/relations
-              setShowCreateModal(false);
-              alert(`Relation created: ${data.fromContentId} → ${data.toContentId} (${data.relationType})`);
+            fromContentId={fromEntryId || undefined}
+            onSubmit={async (data) => {
+              try {
+                const created = await relationsService.createRelation(data.fromContentId, { to_content_id: data.toContentId, relation_type: data.relationType });
+                setRelations((prev) => [created, ...prev]);
+                setFromEntryId(data.fromContentId);
+                setShowCreateModal(false);
+              } catch (e) {
+                alert("no permission");
+              }
             }}
             onCancel={() => setShowCreateModal(false)}
           />
@@ -274,4 +374,3 @@ export default function ContentRelationsPage() {
     </div>
   );
 }
-

@@ -37,6 +37,7 @@ export interface RelatedEntriesProps {
   contentTypeId: number;
   relationType?: RelationType;
   limit?: number;
+  direction?: "outgoing" | "incoming";
 }
 
 export interface RelatedEntriesData {

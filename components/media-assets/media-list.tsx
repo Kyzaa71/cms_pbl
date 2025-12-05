@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { MediaFile, formatFileSize, formatDate, getMediaTypeCategory } from "./types";
-import { Eye, Pencil, Trash2, Video, FileText } from "lucide-react";
+import { Eye, Pencil, Trash2, Video, FileText, Image as ImageIcon } from "lucide-react";
+import { getBaseUrl } from "@/lib/api-client";
 
 const getInitials = (name: string): string => {
   return name
@@ -23,6 +24,35 @@ interface MediaListProps {
 }
 
 export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
+  const [previewMap, setPreviewMap] = useState<Record<number, string>>({});
+  const BASE_URL = getBaseUrl();
+
+  const normalizeUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const cleaned = url.trim().replace(/[\\]+/g, "/");
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+    if (cleaned.startsWith("/")) return `${BASE_URL}${cleaned}`;
+    return `${BASE_URL}/${cleaned}`;
+  };
+
+  const proxiedUrl = (url?: string): string | null => {
+    const u = normalizeUrl(url);
+    return u ? `/api/media-proxy?url=${encodeURIComponent(u)}` : null;
+  };
+
+  useEffect(() => {
+    const revoked: string[] = [];
+    const load = async () => {
+      const targets = media.filter((m) => getMediaTypeCategory(m.type) === "image" && !(m.id in previewMap));
+      if (targets.length === 0) return;
+      const entries: Array<[number, string | null]> = targets.map((m) => [m.id, proxiedUrl(m.url)]);
+      const next = { ...previewMap };
+      entries.forEach(([id, url]) => { if (url) next[id] = url; });
+      setPreviewMap(next);
+    };
+    load();
+    return () => { revoked.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [media, previewMap, proxiedUrl]);
   if (media.length === 0) {
     return (
       <div className="text-center py-12 text-[var(--muted-foreground)]">
@@ -63,15 +93,13 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
                 <td className="py-3 px-4">
                   <div className="w-16 h-16 rounded overflow-hidden bg-[var(--card-bg-inner)] flex items-center justify-center">
                     {category === "image" ? (
-                      <img
-                        src={item.url}
-                        alt={item.alt}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src =
-                            "https://via.placeholder.com/64x64?text=Image";
-                        }}
-                      />
+                      previewMap[item.id] ? (
+                        <img src={previewMap[item.id]} alt={item.alt} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-[var(--card-bg)]">
+                          <ImageIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
+                        </div>
+                      )
                     ) : category === "video" ? (
                       <Video className="w-8 h-8 text-[var(--muted-foreground)]" />
                     ) : (

@@ -5,15 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ArrowLeft, FileText, Calendar, User, History, MessageSquare } from "lucide-react";
-import {
-  getApprovalQueueEntries,
-  getInitials,
-  formatDateTime,
-} from "@/components/approval-queue/types";
+import { getInitials, formatDateTime } from "@/components/approval-queue/types";
+import { getEntriesByStatus } from "@/components/workflow-management/types";
 import { StatusBadge } from "@/components/workflow-management/status-badge";
 import { ApprovalActions } from "@/components/approval-queue/approval-actions";
 import { getHistoryByEntryId, getCommentsByEntryId } from "@/components/workflow-management/types";
 import Link from "next/link";
+import { workflowService } from "@/lib/services/workflow-service";
 
 export default function ApprovalQueueEntryDetailPage() {
   const params = useParams();
@@ -22,7 +20,7 @@ export default function ApprovalQueueEntryDetailPage() {
     ? parseInt(Array.isArray(params.entryId) ? params.entryId[0] : params.entryId)
     : null;
 
-  const entries = getApprovalQueueEntries();
+  const entries = getEntriesByStatus();
   const entry = entryId ? entries.find((e) => e.id === entryId) : null;
 
   const history = entryId ? getHistoryByEntryId(entryId) : [];
@@ -42,6 +40,16 @@ export default function ApprovalQueueEntryDetailPage() {
     alert(`Entry ${entryId} rejected with reason: ${comment}`);
     // Redirect back to approval queue
     router.push("/approval-queue");
+  };
+
+  const handlePublish = async (entryId: number, comment?: string) => {
+    try {
+      await workflowService.publish(entryId, { comment });
+      alert(`Entry ${entryId} published${comment ? ` with comment: ${comment}` : ""}`);
+      router.push("/approval-queue");
+    } catch (e: any) {
+      alert(String(e?.message || "Failed to publish entry"));
+    }
   };
 
   if (!entry) {
@@ -132,6 +140,8 @@ export default function ApprovalQueueEntryDetailPage() {
               entryTitle={entry.title}
               onApprove={handleApprove}
               onReject={handleReject}
+              status={entry.status}
+              onPublish={handlePublish}
             />
           </div>
         </div>

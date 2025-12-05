@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "next-themes";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Eye, EyeOff, UserPlus, Sun, Moon, Mail, Lock, User, CheckCircle } from "lucide-react";
 
 export default function SignupPage() {
+  const { signup } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [agree, setAgree] = useState(false);
@@ -28,11 +30,12 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsLoading(false);
-    // Redirect to login page after successful signup
-    window.location.href = '/auth/login';
+    try {
+      await signup(formData.fullName, formData.email, formData.password);
+      window.location.href = "/";
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGoogleSignup = () => {

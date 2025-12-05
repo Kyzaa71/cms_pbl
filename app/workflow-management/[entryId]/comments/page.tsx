@@ -1,14 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { WorkflowCommentsPanel } from "@/components/workflow-management/workflow-comments-panel";
-import {
-  dummyEntries,
-  getCommentsByEntryId,
-} from "@/components/workflow-management/types";
+import { contentService } from "@/lib/services/content-service";
+import { workflowService } from "@/lib/services/workflow-service";
+import type { ContentEntry, WorkflowComment } from "@/types/backend-models";
 
 export default function WorkflowCommentsPage() {
   const params = useParams();
@@ -17,13 +16,29 @@ export default function WorkflowCommentsPage() {
   const entryId = params?.entryId
     ? parseInt(Array.isArray(params.entryId) ? params.entryId[0] : params.entryId)
     : null;
+  const [entry, setEntry] = useState<ContentEntry | null>(null);
+  const [comments, setComments] = useState<WorkflowComment[]>([]);
 
-  const entry = entryId ? dummyEntries.find((e) => e.id === entryId) : null;
-  const comments = entryId ? getCommentsByEntryId(entryId) : [];
+  useEffect(() => {
+    if (entryId) {
+      contentService.getEntry(entryId).then(setEntry).catch(() => setEntry(null));
+    }
+  }, [entryId]);
 
-  const handleAddComment = (comment: string, isPrivate: boolean) => {
-    console.log("Add comment:", entryId, comment, isPrivate);
-    // In real app, this would call API
+  useEffect(() => {
+    if (entryId) {
+      workflowService
+        .comments(entryId, includePrivate)
+        .then(setComments)
+        .catch(() => setComments([]));
+    }
+  }, [entryId, includePrivate]);
+
+  const handleAddComment = async (comment: string, isPrivate: boolean) => {
+    if (!entryId) return;
+    await workflowService.addComment(entryId, { comment, is_private: isPrivate });
+    const latest = await workflowService.comments(entryId, includePrivate);
+    setComments(latest);
   };
 
   return (
@@ -44,12 +59,17 @@ export default function WorkflowCommentsPage() {
               Workflow Comments
             </h1>
             <p className="text-sm text-[var(--muted-foreground)] transition-colors mt-1">
-              {entry
-                ? `Comments and feedback for "${entry.title}"`
-                : "Workflow comments"}
+              {(() => {
+                if (!entry) return "Workflow comments";
+                const d = (typeof entry.data === "object" && entry.data) ? (entry.data as Record<string, unknown>) : null;
+                const t = d ? d["title"] : undefined;
+                const n = d ? d["name"] : undefined;
+                const displayTitle = typeof t === "string" ? t : typeof n === "string" ? n : `Entry #${entryId}`;
+                return `Comments and feedback for "${displayTitle}"`;
+              })()}
             </p>
-          </div>
         </div>
+      </div>
       </div>
 
       {/* Comments Panel */}

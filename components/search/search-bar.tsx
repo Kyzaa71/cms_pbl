@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Search, X } from "lucide-react";
 import { dummyContentTypes, type WorkflowStatus, AutocompleteSuggestion } from "./types";
-import { generateAutocompleteSuggestions, debounce } from "./autocomplete-helpers";
+import { debounce } from "./autocomplete-helpers";
+import { searchService } from "@/lib/services/search-service";
 import { AutocompleteDropdown } from "./autocomplete-dropdown";
 
 interface SearchBarProps {
@@ -43,18 +44,20 @@ export function SearchBar({
 
   // Generate suggestions with debounce
   const generateSuggestions = useCallback(
-    debounce((query: string) => {
+    debounce(async (query: string) => {
       if (query.length >= 2) {
-        const contentTypeId = contentTypeFilter.length === 1 ? contentTypeFilter[0] : undefined;
-        const autocompleteSuggestions = generateAutocompleteSuggestions({
-          field: "title", // Default to title field, can be made configurable
-          prefix: query,
-          contentTypeId,
-          limit: 8,
-        });
-        setSuggestions(autocompleteSuggestions);
-        setIsAutocompleteOpen(autocompleteSuggestions.length > 0);
-        setSelectedIndex(-1);
+        try {
+          const contentTypeId = contentTypeFilter.length === 1 ? contentTypeFilter[0] : 0;
+          const results = await searchService.autocomplete({ field: "title", prefix: query, content_type_id: contentTypeId, limit: 8 });
+          const suggestions: AutocompleteSuggestion[] = (results || []).map((text) => ({ text, type: "title" }));
+          setSuggestions(suggestions);
+          setIsAutocompleteOpen(suggestions.length > 0);
+          setSelectedIndex(-1);
+        } catch {
+          setSuggestions([]);
+          setIsAutocompleteOpen(false);
+          setSelectedIndex(-1);
+        }
       } else {
         setSuggestions([]);
         setIsAutocompleteOpen(false);

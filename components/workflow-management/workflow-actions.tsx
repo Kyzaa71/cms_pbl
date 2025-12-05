@@ -9,8 +9,10 @@ import {
   FileText,
   RefreshCw,
 } from "lucide-react";
-import { WorkflowStatus, getAvailableTransitions, currentUserRole } from "./types";
+import { WorkflowStatus, getAvailableTransitions } from "./types";
+import { useAuth } from "@/hooks/use-auth";
 import { StatusBadge } from "./status-badge";
+import { api } from "@/lib/api-client";
 
 interface WorkflowActionsProps {
   currentStatus: WorkflowStatus;
@@ -23,7 +25,48 @@ export function WorkflowActions({
   onStatusChange,
   entryId,
 }: WorkflowActionsProps) {
-  const availableTransitions = getAvailableTransitions(currentStatus, currentUserRole);
+  const { user, token, can } = useAuth();
+  let roleName = "";
+  let tk: string | null = null;
+  if (typeof document !== "undefined") {
+    try { tk = localStorage.getItem("auth_token"); } catch {}
+  }
+  if (!tk) tk = typeof token === "string" ? token : api.getToken();
+  if (typeof tk === "string") {
+    try {
+      const part = tk.split(".")[1] || "";
+      const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+      const pad = base64.length % 4;
+      const padded = base64 + (pad ? "=".repeat(4 - pad) : "");
+      const payload = padded ? JSON.parse(atob(padded)) : {};
+      if (payload && typeof payload.role === "string") roleName = (payload.role as string).toLowerCase().trim();
+    } catch {}
+  }
+  if (!roleName) roleName = (user?.role?.name || "").toLowerCase().trim();
+  if (roleName === "viewer" || roleName === "seo_specialist") {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status={currentStatus} />
+        <span className="text-sm text-[var(--muted-foreground)]">No actions available for your role</span>
+      </div>
+    );
+  }
+  const availableTransitions = getAvailableTransitions(currentStatus, roleName || "viewer");
+  const filteredTransitions = availableTransitions.filter(({ toStatus }) => {
+    if (toStatus === "approved" || toStatus === "published") {
+      return can("ContentEntry", "approve");
+    }
+    return can("ContentEntry", "update");
+  });
+
+  if (filteredTransitions.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status={currentStatus} />
+        <span className="text-sm text-[var(--muted-foreground)]">No actions available for your role</span>
+      </div>
+    );
+  }
 
   if (availableTransitions.length === 0) {
     return (
@@ -119,11 +162,8 @@ export function WorkflowActions({
     <div className="flex flex-wrap items-center gap-3">
       <StatusBadge status={currentStatus} />
       <div className="flex flex-wrap gap-2">
-        {availableTransitions.map((transition) =>
-          getActionButton(transition)
-        )}
+        {filteredTransitions.map((transition) => getActionButton(transition))}
       </div>
     </div>
   );
 }
-

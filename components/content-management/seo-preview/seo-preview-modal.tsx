@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SEOPreviewProps, SEOPreviewData } from "./types";
 import { generateSEOPreview } from "./seo-preview-helpers";
+import { contentService } from "@/lib/services/content-service";
 import { SEOPreviewCard } from "./seo-preview-card";
 import { SEOPreviewSocial } from "./seo-preview-social";
 import { SEOPreviewMetadata } from "./seo-preview-metadata";
-import { getEntryById, ContentEntry } from "@/components/content-management/types";
-import { getContentTypeById, ContentType } from "@/components/content-builder/types";
+import type { ContentEntry } from "@/types/backend-models";
+import type { ContentType } from "@/types/backend-models";
 
 type TabType = "google" | "facebook" | "twitter" | "linkedin" | "metadata";
 
@@ -29,31 +30,19 @@ export function SEOPreviewModal({
   const [contentType, setContentType] = useState(contentTypeProp);
 
   useEffect(() => {
-    if (isOpen && entryId) {
-      // Load entry and content type if not provided
-      if (!entry) {
-        const loadedEntry = getEntryById(entryId);
-        setEntry(loadedEntry);
+    if (!isOpen || !entryId) return;
+    const doLoad = async () => {
+      try {
+        const apiData = await contentService.seoPreview(entryId);
+        setSeoData(apiData as SEOPreviewData);
+      } catch {
+        const currentEntry = entryProp || entry;
+        const preview = currentEntry ? generateSEOPreview(currentEntry, contentTypeProp || contentType) : {};
+        setSeoData(preview);
       }
-      
-      if (!contentType) {
-        const loadedContentType = getContentTypeById(contentTypeId);
-        setContentType(loadedContentType);
-      }
-
-      // Generate SEO preview data
-      if (entry || entryProp) {
-        const currentEntry = entry || entryProp;
-        if (currentEntry) {
-          const preview = generateSEOPreview(
-            currentEntry,
-            contentType || contentTypeProp
-          );
-          setSeoData(preview);
-        }
-      }
-    }
-  }, [isOpen, entryId, contentTypeId, entryProp, contentTypeProp, entry, contentType]);
+    };
+    doLoad();
+  }, [isOpen, entryId, entryProp, contentTypeProp]);
 
   if (!isOpen) return null;
 

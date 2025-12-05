@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -19,22 +19,57 @@ import {
   Filter,
   Users,
 } from "lucide-react";
-import {
-  dummyRoles,
-  Role,
-  formatRoleName,
-  countPermissions,
-  countUsersWithRole,
-} from "@/components/role-permissions/types";
+import { Role as UIRole, formatRoleName, countPermissions } from "@/components/role-permissions/types";
+import type { Role as BackendRole, Permission as BackendPermission } from "@/types/backend-models";
+import type { User as BackendUser } from "@/types/backend-models";
+import { roleService, userService } from "@/lib/services/user-service";
 
 export default function RolePermissionsPage() {
   const router = useRouter();
-  const [roles] = useState<Role[]>(dummyRoles);
+  const [roles, setRoles] = useState<UIRole[]>([]);
+  const [users, setUsers] = useState<BackendUser[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [moduleFilter, setModuleFilter] = useState<string>("all");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setError(null);
+        const [r, u] = await Promise.all([roleService.list(), userService.list()]);
+        const mapped: UIRole[] = r.map((rb: BackendRole) => ({
+          id: rb.id,
+          name: rb.name,
+          description: rb.description,
+          permissions: (rb.permissions || []).map((p: BackendPermission) => ({
+            id: p.id,
+            roleId: p.role_id,
+            module: p.module as "ContentEntry" | "Media" | "SEO",
+            action: p.action as "create" | "read" | "update" | "delete" | "approve",
+            fieldScope: p.field_scope as "all" | "seo_only" | "non_seo_only" | "custom",
+            allowedFields: Array.isArray(p.allowed_fields) ? (p.allowed_fields as string[]) : undefined,
+            deniedFields: Array.isArray(p.denied_fields) ? (p.denied_fields as string[]) : undefined,
+            contentTypeIds: Array.isArray(p.content_type_ids) ? (p.content_type_ids as number[]) : undefined,
+          })),
+          createdAt: rb.created_at,
+          updatedAt: rb.updated_at,
+        }));
+        setRoles(mapped);
+        setUsers(u);
+      } catch (e: any) {
+        const code = e?.code ?? "";
+        const msg = String(e?.message || "");
+        if (code === "403" || /permission/i.test(msg)) {
+          setError("No permission");
+        } else {
+          setError(msg || "Failed to load roles");
+        }
+      }
+    };
+    load();
+  }, []);
 
   // Filter roles
-  const filteredRoles = roles.filter((role) => {
+  const filteredRoles = useMemo(() => roles.filter((role) => {
     const matchesSearch =
       role.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       role.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -47,7 +82,7 @@ export default function RolePermissionsPage() {
       (p) => p.module === moduleFilter
     );
     return matchesSearch && hasModulePermission;
-  });
+  }), [roles, searchQuery, moduleFilter]);
 
   // Handlers
   const handleView = (roleId: number) => {
@@ -58,16 +93,14 @@ export default function RolePermissionsPage() {
     router.push(`/role-permissions/${roleId}/edit`);
   };
 
-  const handleDuplicate = (role: Role) => {
+  const handleDuplicate = (role: UIRole) => {
     if (confirm(`Duplicate role "${formatRoleName(role.name)}"?`)) {
-      // In a real app, this would call an API
-      console.log("Duplicate role:", role.id);
       router.push(`/role-permissions/create?duplicate=${role.id}`);
     }
   };
 
-  const handleDelete = (role: Role) => {
-    const userCount = countUsersWithRole(role.id);
+  const handleDelete = (role: UIRole) => {
+    const userCount = users.filter((u) => u.role_id === role.id).length;
     if (userCount > 0) {
       alert(
         `Cannot delete role "${formatRoleName(role.name)}" because it is assigned to ${userCount} user${userCount !== 1 ? "s" : ""}.`
@@ -76,8 +109,9 @@ export default function RolePermissionsPage() {
     }
 
     if (confirm(`Are you sure you want to delete role "${formatRoleName(role.name)}"?`)) {
-      // In a real app, this would call an API
-      console.log("Delete role:", role.id);
+      roleService.remove(role.id).then(() => {
+        setRoles((prev) => prev.filter((r) => r.id !== role.id));
+      }).catch((e) => alert(e?.message || "Failed to delete role"));
     }
   };
 
@@ -160,7 +194,7 @@ export default function RolePermissionsPage() {
             <div>
               <p className="text-sm opacity-90">Active Roles</p>
               <p className="text-2xl font-bold mt-1">
-                {roles.filter((r) => countUsersWithRole(r.id) > 0).length}
+                {roles.filter((r) => users.some((u) => u.role_id === r.id)).length}
               </p>
             </div>
             <Users className="w-8 h-8 opacity-80" />
@@ -171,7 +205,7 @@ export default function RolePermissionsPage() {
             <div>
               <p className="text-sm opacity-90">Unassigned</p>
               <p className="text-2xl font-bold mt-1">
-                {roles.filter((r) => countUsersWithRole(r.id) === 0).length}
+                {roles.filter((r) => users.every((u) => u.role_id !== r.id)).length}
               </p>
             </div>
             <Shield className="w-8 h-8 opacity-80" />
@@ -193,7 +227,13 @@ export default function RolePermissionsPage() {
             </tr>
           </thead>
           <tbody className="bg-[var(--card-bg-inner)]">
-            {filteredRoles.length === 0 ? (
+            {error ? (
+              <tr>
+                <td colSpan={6} className="text-center py-8 text-[var(--muted-foreground)]">
+                  {error}
+                </td>
+              </tr>
+            ) : filteredRoles.length === 0 ? (
               <tr>
                 <td
                   colSpan={6}
@@ -204,7 +244,7 @@ export default function RolePermissionsPage() {
               </tr>
             ) : (
               filteredRoles.map((role, index) => {
-                const userCount = countUsersWithRole(role.id);
+                const userCount = users.filter((u) => u.role_id === role.id).length;
                 return (
                   <tr
                     key={role.id}

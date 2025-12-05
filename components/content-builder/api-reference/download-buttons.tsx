@@ -10,11 +10,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Download, FileCode, FileText, Loader2 } from "lucide-react";
 import { ContentType, ContentField } from "@/components/content-builder/types";
-import {
-  generateOpenAPISpec,
-  generateMarkdownDocs,
-  downloadFile,
-} from "./download-helpers";
+import { downloadFile } from "./download-helpers";
+import { contentService } from "@/lib/services/content-service";
 
 interface DownloadButtonsProps {
   contentTypeId: number;
@@ -32,8 +29,7 @@ export function DownloadButtons({
   const handleDownloadOpenAPI = async () => {
     setIsDownloading("openapi");
     try {
-      // In a real app, this would fetch from: GET /content/types/:id/openapi
-      const yaml = generateOpenAPISpec(contentType, fields);
+      const yaml = await contentService.openapi(contentTypeId);
       downloadFile(
         yaml,
         `${contentType.slug}-api.yaml`,
@@ -50,8 +46,7 @@ export function DownloadButtons({
   const handleDownloadMarkdown = async () => {
     setIsDownloading("markdown");
     try {
-      // In a real app, this would fetch from: GET /content/types/:id/docs/markdown
-      const markdown = generateMarkdownDocs(contentType, fields);
+      const markdown = await contentService.markdownDocs(contentTypeId);
       downloadFile(
         markdown,
         `${contentType.slug}-docs.md`,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ import {
   formatDateTime,
   getMediaTypeCategory,
 } from "./types";
-import {
+import  {
   ArrowLeft,
   Pencil,
   Trash2,
@@ -25,6 +26,7 @@ import {
   Folder,
   Tag,
 } from "lucide-react";
+import { getBaseUrl } from "@/lib/api-client";
 
 const getInitials = (name: string): string => {
   return name
@@ -43,6 +45,46 @@ interface MediaDetailViewProps {
 
 export function MediaDetailView({ media, onEdit, onDelete }: MediaDetailViewProps) {
   const router = useRouter();
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const BASE_URL = getBaseUrl();
+
+  const normalizeUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const cleaned = url.trim().replace(/[\\]+/g, "/");
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+    if (cleaned.startsWith("/")) return `${BASE_URL}${cleaned}`;
+    return `${BASE_URL}/${cleaned}`;
+  };
+
+  useEffect(() => {
+    let revoked: string | null = null;
+    async function loadPreview() {
+      try {
+        const isImg = !!(media && getMediaTypeCategory(media.type) === "image");
+        const resourceUrl = normalizeUrl(media?.url || undefined);
+        if (!media || !isImg || !resourceUrl) {
+          setPreviewSrc(null);
+          return;
+        }
+        const token = (await import("@/lib/api-client")).api.getToken() ?? "";
+        const res = await fetch(resourceUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) {
+          setPreviewSrc(null);
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setPreviewSrc(url);
+      } catch {
+        setPreviewSrc(null);
+      }
+    }
+    loadPreview();
+    return () => { if (revoked) URL.revokeObjectURL(revoked); };
+  }, [media]);
 
   if (!media) {
     return (
@@ -56,13 +98,17 @@ export function MediaDetailView({ media, onEdit, onDelete }: MediaDetailViewProp
   const isImage = category === "image";
 
   const handleCopyUrl = () => {
-    navigator.clipboard.writeText(media.url);
+    const resourceUrl = normalizeUrl(media.url) || media.url;
+    navigator.clipboard.writeText(resourceUrl);
     alert("URL copied to clipboard!");
   };
 
   const handleDownload = () => {
-    window.open(media.url, "_blank");
+    const resourceUrl = normalizeUrl(media.url) || media.url;
+    window.open(resourceUrl, "_blank");
   };
+
+  
 
   return (
     <div className="space-y-6">
@@ -138,7 +184,7 @@ export function MediaDetailView({ media, onEdit, onDelete }: MediaDetailViewProp
             <div className="bg-[var(--card-bg)] rounded-lg p-8 flex items-center justify-center min-h-[400px]">
               {isImage ? (
                 <img
-                  src={media.url}
+                  src={previewSrc || normalizeUrl(media.url) || media.url}
                   alt={media.alt}
                   className="max-w-full max-h-[600px] object-contain rounded-lg"
                   onError={(e) => {

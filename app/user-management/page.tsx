@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -20,27 +20,58 @@ import {
   Shield,
   Filter,
 } from "lucide-react";
-import { dummyUsers, dummyRoles, getInitials, getRoleBadgeColor, User } from "@/components/user-management/types";
+import { getInitials, getRoleBadgeColor, User as UIUser } from "@/components/user-management/types";
+import type { User as BackendUser, Role as BackendRole } from "@/types/backend-models";
+import { userService, roleService } from "@/lib/services/user-service";
 
 export default function UserManagementPage() {
   const router = useRouter();
-  const [users] = useState<User[]>(dummyUsers);
+  const [users, setUsers] = useState<UIUser[]>([]);
+  const [roles, setRoles] = useState<BackendRole[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [roleFilter, setRoleFilter] = useState<string>("all");
-
-  // Note: In a real app, users would be fetched from API
-  // For now, we use dummy data
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setError(null);
+        const [u, r] = await Promise.all([userService.list(), roleService.list()]);
+        setRoles(r);
+        const mapped: UIUser[] = u.map((x: BackendUser) => ({
+          id: x.id,
+          name: x.name,
+          email: x.email,
+          role: x.role?.name || String(x.role_id),
+          roleId: x.role_id,
+          status: (x.status as "active" | "inactive") || "active",
+          avatar: x.profile,
+          createdAt: x.created_at,
+          provider: x.provider,
+        }));
+        setUsers(mapped);
+      } catch (e: any) {
+        const code = e?.code ?? "";
+        const msg = String(e?.message || "");
+        if (code === "403" || /permission/i.test(msg)) {
+          setError("No permission");
+        } else {
+          setError(msg || "Failed to load users");
+        }
+      }
+    };
+    load();
+  }, []);
 
   // Filter users
-  const filteredUsers = users.filter((user) => {
+  const filteredUsers = useMemo(() => users.filter((user) => {
     const matchesSearch =
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || user.status === statusFilter;
     const matchesRole = roleFilter === "all" || user.roleId.toString() === roleFilter;
     return matchesSearch && matchesStatus && matchesRole;
-  });
+  }), [users, searchQuery, statusFilter, roleFilter]);
 
   // Handlers
   const handleView = (userId: number) => {
@@ -52,11 +83,25 @@ export default function UserManagementPage() {
   };
 
   const handleDelete = (userId: number) => {
-    if (confirm("Are you sure you want to delete this user?")) {
-      // In a real app, this would call an API
-      // For now, just show confirmation
-      console.log("Delete user:", userId);
-    }
+    if (!confirm("Are you sure you want to delete this user?")) return;
+    userService
+      .remove(userId)
+      .then(async () => {
+        const u = await userService.list();
+        const mapped: UIUser[] = u.map((x) => ({
+          id: x.id,
+          name: x.name,
+          email: x.email,
+          role: x.role?.name || String(x.role_id),
+          roleId: x.role_id,
+          status: (x.status as "active" | "inactive") || "active",
+          avatar: x.profile,
+          createdAt: x.created_at,
+          provider: x.provider,
+        }));
+        setUsers(mapped);
+      })
+      .catch((e) => alert(e?.message || "Failed to delete user"));
   };
 
   return (
@@ -115,7 +160,7 @@ export default function UserManagementPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Roles</SelectItem>
-              {dummyRoles.map((role) => (
+              {roles.map((role) => (
                 <SelectItem key={role.id} value={role.id.toString()}>
                   {role.name}
                 </SelectItem>
@@ -151,7 +196,7 @@ export default function UserManagementPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm opacity-90">Roles</p>
-              <p className="text-2xl font-bold mt-1">{dummyRoles.length}</p>
+              <p className="text-2xl font-bold mt-1">{roles.length}</p>
             </div>
             <Shield className="w-8 h-8 opacity-80" />
           </div>
@@ -170,6 +215,11 @@ export default function UserManagementPage() {
       </div>
 
       {/* Users Table */}
+      {error ? (
+        <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
+          <p className="text-center text-[var(--muted-foreground)]">{error}</p>
+        </Card>
+      ) : (
       <div className="overflow-hidden border border-[var(--border)] rounded-md shadow-sm">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -295,6 +345,7 @@ export default function UserManagementPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

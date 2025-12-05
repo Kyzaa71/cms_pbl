@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -12,34 +13,99 @@ import {
   Calendar,
   Clock,
   CheckCircle2,
-  AlertCircle,
   Megaphone,
   Settings,
   TrendingUp,
   FileText,
-  Image,
+  Image as ImageIcon,
   SendToBack,
-  Eye,
   ArrowRight,
   Plus,
   Upload,
   CheckSquare,
-  XCircle,
 } from "lucide-react";
 import {
   mockPersonalProjects,
   mockOrganizationalProjects,
   mockProjectDeadlines,
   mockProjectDetails,
-  mockContentStats,
-  mockApprovalQueueItems,
-  mockWorkflowStatusBreakdown,
   mockActivities,
-  mockMediaStats,
   mockOrganizations,
 } from "./dashboard-types";
+import { contentService } from "@/lib/services/content-service";
+import { workflowService } from "@/lib/services/workflow-service";
+import { mediaService } from "@/lib/services/media-service";
+import type { ContentType } from "@/types/backend-models";
 
 export function DashboardCards() {
+  const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
+  type WorkflowStats = { draft?: number; in_review?: number; ready_for_approval?: number; approved?: number; published?: number; rejected?: number; total?: number };
+  const [typeStats, setTypeStats] = useState<Record<number, WorkflowStats>>({});
+  const [approvalCount, setApprovalCount] = useState<number>(0);
+  type MediaDashboardStats = { total_files: number; total_size_bytes: number; recent_uploads_24h: number; by_type: Record<string, number> };
+  const [mediaStats, setMediaStats] = useState<MediaDashboardStats>({ total_files: 0, total_size_bytes: 0, recent_uploads_24h: 0, by_type: {} });
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const cts = await contentService.listContentTypes();
+        setContentTypes(cts);
+        const statsEntries = await Promise.all(cts.map((ct) => workflowService.stats(ct.id)));
+        const map: Record<number, WorkflowStats> = {};
+        let approvals = 0;
+        statsEntries.forEach((s, idx) => {
+          const id = cts[idx].id;
+          map[id] = s || {};
+          approvals += (s?.ready_for_approval || 0);
+        });
+        setTypeStats(map);
+        setApprovalCount(approvals);
+      } catch {}
+      try {
+        const ms = await mediaService.stats();
+        setMediaStats(ms || {});
+      } catch {}
+    };
+    load();
+  }, []);
+
+  const aggregatedContent = useMemo(() => {
+    const init = { totalEntries: 0, published: 0, draft: 0, pendingApproval: 0, inReview: 0, approved: 0, rejected: 0 };
+    for (const ct of contentTypes) {
+      const s = typeStats[ct.id] || {};
+      init.totalEntries += (s.total || s.draft || 0) + (s.in_review || 0) + (s.ready_for_approval || 0) + (s.approved || 0) + (s.published || 0) + (s.rejected || 0);
+      init.published += s.published || 0;
+      init.draft += s.draft || 0;
+      init.pendingApproval += s.ready_for_approval || 0;
+      init.inReview += s.in_review || 0;
+      init.approved += s.approved || 0;
+      init.rejected += s.rejected || 0;
+    }
+    return init;
+  }, [contentTypes, typeStats]);
+
+  const workflowBreakdown = useMemo(() => {
+    return contentTypes.map((ct) => {
+      const s = typeStats[ct.id] || {};
+      return {
+        contentType: ct.name,
+        draft: s.draft || 0,
+        inReview: s.in_review || 0,
+        readyForApproval: s.ready_for_approval || 0,
+        approved: s.approved || 0,
+        published: s.published || 0,
+        rejected: s.rejected || 0,
+      };
+    });
+  }, [contentTypes, typeStats]);
+
+  const formatBytes = (bytes: number): string => {
+    if (!bytes || bytes <= 0) return "0 B";
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return `${val.toFixed(1)} ${sizes[i]}`;
+  };
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Urgent":
@@ -87,11 +153,11 @@ export function DashboardCards() {
   };
 
   const getActivityIcon = (iconName: string) => {
-    const iconMap: Record<string, any> = {
+    const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
       FileText,
       CheckCircle2,
       Settings,
-      Image,
+      ImageIcon,
       SendToBack,
       Megaphone,
     };
@@ -125,7 +191,7 @@ export function DashboardCards() {
             className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-white dark:!bg-[var(--card-bg-inner)] !text-[var(--foreground)] !border-[var(--border)] hover:!bg-[var(--card-bg)] hover:!border-[var(--primary)]/30 hover:!text-[var(--primary)] !cursor-pointer flex items-center gap-2"
           >
             <CheckSquare className="w-4 h-4" />
-            View Approvals ({mockApprovalQueueItems.length})
+            View Approvals ({approvalCount})
           </Button>
         </Link>
         <Link href="/assets">
@@ -203,7 +269,7 @@ export function DashboardCards() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90 mb-1">Total Entries</p>
-                <p className="text-2xl font-bold">{mockContentStats.totalEntries}</p>
+                <p className="text-2xl font-bold">{aggregatedContent.totalEntries}</p>
               </div>
               <FileText className="w-8 h-8 opacity-80" />
             </div>
@@ -212,7 +278,7 @@ export function DashboardCards() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90 mb-1">Published</p>
-                <p className="text-2xl font-bold">{mockContentStats.published}</p>
+                <p className="text-2xl font-bold">{aggregatedContent.published}</p>
               </div>
               <CheckCircle2 className="w-8 h-8 opacity-80" />
             </div>
@@ -221,7 +287,7 @@ export function DashboardCards() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90 mb-1">Draft</p>
-                <p className="text-2xl font-bold">{mockContentStats.draft}</p>
+                <p className="text-2xl font-bold">{aggregatedContent.draft}</p>
               </div>
               <FileText className="w-8 h-8 opacity-80" />
             </div>
@@ -230,7 +296,7 @@ export function DashboardCards() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm opacity-90 mb-1">Pending Approval</p>
-                <p className="text-2xl font-bold">{mockContentStats.pendingApproval}</p>
+                <p className="text-2xl font-bold">{aggregatedContent.pendingApproval}</p>
               </div>
               <Clock className="w-8 h-8 opacity-80" />
             </div>
@@ -290,29 +356,41 @@ export function DashboardCards() {
             </Link>
           </div>
           <div className="space-y-3 max-h-72 overflow-y-auto custom-scrollbar pr-2">
-            {mockApprovalQueueItems.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 rounded-md bg-[var(--card-bg)] border border-[var(--border)] hover:border-[var(--primary)]/30 hover:shadow-md transition-all"
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-[var(--foreground)] mb-1">
-                      {item.title}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                      <span>{item.contentType}</span>
-                      <span>•</span>
-                      <span>{item.creator}</span>
-                    </div>
-                  </div>
-                  <div className="ml-4 shrink-0">{getPriorityBadge(item.priority)}</div>
-                </div>
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  Submitted {item.submittedAt}
+            {workflowBreakdown.filter((w) => w.readyForApproval > 0).length === 0 ? (
+              <div className="p-4 rounded-md bg-[var(--card-bg)] border border-[var(--border)]">
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  No entries are currently awaiting approval.
                 </p>
               </div>
-            ))}
+            ) : (
+              workflowBreakdown
+                .filter((w) => w.readyForApproval > 0)
+                .map((w, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-md bg-[var(--card-bg)] border border-[var(--border)] hover:border-[var(--primary)]/30 hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-[var(--foreground)] mb-1">
+                          {w.contentType}
+                        </p>
+                        <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                          <span>Ready for Approval</span>
+                        </div>
+                      </div>
+                      <div className="ml-4 shrink-0">
+                        <Badge className="bg-orange-500 text-white border-0">
+                          {w.readyForApproval}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      {w.readyForApproval} item(s) awaiting review
+                    </p>
+                  </div>
+                ))
+            )}
           </div>
         </Card>
       </div>
@@ -366,7 +444,7 @@ export function DashboardCards() {
             </Link>
           </div>
           <div className="space-y-3 max-h-72 overflow-y-auto custom-scrollbar pr-2">
-            {mockWorkflowStatusBreakdown.map((workflow, idx) => (
+            {workflowBreakdown.map((workflow, idx) => (
               <div
                 key={idx}
                 className="p-4 rounded-md bg-[var(--card-bg)] border border-[var(--border)] hover:border-[var(--primary)]/30 hover:shadow-md transition-all"
@@ -443,7 +521,7 @@ export function DashboardCards() {
           <Card className="p-5 bg-[var(--card-bg-inner)] border border-[var(--border)] shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <Image className="w-5 h-5 text-[var(--primary)]" />
+                <ImageIcon className="w-5 h-5 text-[var(--primary)]" />
                 <h2 className="font-semibold text-lg text-[var(--foreground)]">
                   Media Library
                 </h2>
@@ -461,7 +539,7 @@ export function DashboardCards() {
                     Total Files
                   </p>
                   <p className="text-lg font-bold text-[var(--foreground)]">
-                    {mockMediaStats.totalFiles.toLocaleString('en-US')}
+                    {(mediaStats.total_files || 0).toLocaleString('en-US')}
                   </p>
                 </div>
                 <div className="p-3 rounded-md bg-[var(--card-bg)] border border-[var(--border)]">
@@ -469,7 +547,7 @@ export function DashboardCards() {
                     Storage Used
                   </p>
                   <p className="text-lg font-bold text-[var(--foreground)]">
-                    {mockMediaStats.totalSize}
+                    {formatBytes(mediaStats.total_size_bytes || 0)}
                   </p>
                 </div>
               </div>
@@ -478,7 +556,7 @@ export function DashboardCards() {
                   Recent Uploads (24h)
                 </p>
                 <p className="text-lg font-bold text-[var(--foreground)]">
-                  {mockMediaStats.recentUploads} files
+                  {(mediaStats.recent_uploads_24h || 0)} files
                 </p>
               </div>
             </div>

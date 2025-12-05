@@ -14,13 +14,12 @@ import {
   FileText,
   Database,
   Code,
+  RefreshCcw,
 } from "lucide-react";
-import {
-  getContentTypeById,
-  getFieldsByContentTypeId,
-  ContentType,
-  ContentField,
-} from "@/components/content-builder/types";
+import { ContentType, ContentField } from "@/types/backend-models";
+import { contentService } from "@/lib/services/content-service";
+import { workflowService } from "@/lib/services/workflow-service";
+import { useContentType } from "@/hooks/use-content";
 import { FieldsList } from "@/components/content-builder/fields-list";
 
 export default function ContentTypeDetailPage() {
@@ -29,19 +28,74 @@ export default function ContentTypeDetailPage() {
   const searchParams = useSearchParams();
   const contentTypeId = parseInt(params.id as string);
   
+  const { data: fetchedCT, refetch: refetchCT } = useContentType(contentTypeId);
   const [contentType, setContentType] = useState<ContentType | undefined>();
   const [fields, setFields] = useState<ContentField[]>([]);
+  const [entriesCount, setEntriesCount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"overview" | "fields">("overview");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    const ct = getContentTypeById(contentTypeId);
-    setContentType(ct);
-    
-    if (ct) {
-      const fieldsData = getFieldsByContentTypeId(contentTypeId);
-      setFields(fieldsData);
+    if (fetchedCT) {
+      setContentType(fetchedCT);
+      const all = [
+        ...(fetchedCT.fields || []),
+        ...(fetchedCT.seo_fields || []),
+      ] as ContentField[];
+      setFields(all);
     }
+  }, [fetchedCT]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCount() {
+      try {
+        const stats = await workflowService.stats(contentTypeId).catch(() => null);
+        if (stats && typeof stats.total === "number") {
+          if (active) setEntriesCount(stats.total);
+          return;
+        }
+      } catch {}
+      try {
+        const wf = await workflowService.entriesByStatus(contentTypeId).catch(() => []);
+        if (active) setEntriesCount(Array.isArray(wf) ? wf.length : 0);
+        return;
+      } catch {}
+      try {
+        const res = await contentService.listEntries(contentTypeId, { page: 1, limit: 100 });
+        if (active) setEntriesCount(Array.isArray(res.entries) ? res.entries.length : 0);
+      } catch {
+        if (active) setEntriesCount(0);
+      }
+    }
+    loadCount();
+    return () => { active = false; };
   }, [contentTypeId]);
+
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await refetchCT();
+      // Recount entries after refetch
+      try {
+        const stats = await workflowService.stats(contentTypeId).catch(() => null);
+        if (stats && typeof stats.total === "number") {
+          setEntriesCount(stats.total);
+        } else {
+          const wf = await workflowService.entriesByStatus(contentTypeId).catch(() => []);
+          if (Array.isArray(wf)) setEntriesCount(wf.length);
+          else {
+            const res = await contentService.listEntries(contentTypeId, { page: 1, limit: 100 });
+            setEntriesCount(Array.isArray(res.entries) ? res.entries.length : 0);
+          }
+        }
+      } catch {
+        setEntriesCount(0);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   // Check for tab query parameter on mount and when searchParams change
   useEffect(() => {
@@ -69,8 +123,8 @@ export default function ContentTypeDetailPage() {
     );
   }
 
-  const regularFields = fields.filter((f) => !f.isSeo);
-  const seoFields = fields.filter((f) => f.isSeo);
+  const regularFields = fields.filter((f) => !f.is_seo);
+  const seoFields = fields.filter((f) => f.is_seo);
 
   return (
     <div className="space-y-6">
@@ -104,6 +158,15 @@ export default function ContentTypeDetailPage() {
               Manage Entries
             </Button>
           </Link>
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2"
+          >
+            <RefreshCcw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing" : "Refresh"}
+          </Button>
         </div>
       </div>
 
@@ -156,7 +219,7 @@ export default function ContentTypeDetailPage() {
             <div>
               <p className="text-xs text-[var(--muted-foreground)]">Total Entries</p>
               <p className="text-lg font-semibold text-[var(--foreground)]">
-                {contentType.entriesCount}
+                {entriesCount}
               </p>
             </div>
           </div>
@@ -219,7 +282,7 @@ export default function ContentTypeDetailPage() {
                     <p className="text-sm text-[var(--muted-foreground)] mb-1">
                       SEO Enabled
                     </p>
-                    {contentType.enableSeo ? (
+                    {contentType.enable_seo ? (
                       <Badge className="bg-[var(--success)] text-white">Enabled</Badge>
                     ) : (
                       <Badge variant="outline" className="border-[var(--border)]">
@@ -232,7 +295,7 @@ export default function ContentTypeDetailPage() {
                       Created At
                     </p>
                     <p className="text-base text-[var(--foreground)]">
-                      {new Date(contentType.createdAt).toLocaleDateString()}
+                      {new Date(contentType.created_at).toLocaleDateString()}
                     </p>
                   </div>
                 </div>

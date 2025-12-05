@@ -1,19 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search, Layers, Database, FileText } from "lucide-react";
-import { dummyContentTypes } from "@/components/content-builder/types";
-import { getEntriesByContentType } from "@/components/content-management/types";
-import type { ContentType } from "@/components/content-builder/types";
+import { ContentType } from "@/types/backend-models";
+import { useContentTypes } from "@/hooks/use-content";
+import { workflowService } from "@/lib/services/workflow-service";
+import { contentService } from "@/lib/services/content-service";
 
 export default function ContentManagementPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [contentTypes] = useState<ContentType[]>(dummyContentTypes);
+  const { data: serverContentTypes } = useContentTypes();
+  const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
+  const [entriesCountByCT, setEntriesCountByCT] = useState<Record<number, number>>({});
+  useEffect(() => { if (serverContentTypes) setContentTypes(serverContentTypes); }, [serverContentTypes]);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Check if type parameter exists in URL, redirect to entries list
@@ -25,17 +29,52 @@ export default function ContentManagementPage() {
   }, [searchParams, router]);
 
   // Filter content types
-  const filteredContentTypes = contentTypes.filter((ct) => {
-    const matchesSearch =
-      ct.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ct.slug.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
+  const filteredContentTypes = useMemo(() => {
+    return contentTypes.filter((ct) => {
+      const q = searchQuery.toLowerCase();
+      return ct.name.toLowerCase().includes(q) || ct.slug.toLowerCase().includes(q);
+    });
+  }, [contentTypes, searchQuery]);
 
-  // Get entry counts for each content type
-  const getEntryCount = (contentTypeId: number) => {
-    return getEntriesByContentType(contentTypeId).length;
-  };
+  const filteredIdsKey = useMemo(() => filteredContentTypes.map((ct) => ct.id).join(","), [filteredContentTypes]);
+
+  const getFieldsCount = (ct: ContentType) => (ct.fields?.length || 0) + (ct.seo_fields?.length || 0);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCounts() {
+      const map: Record<number, number> = {};
+      for (const ct of filteredContentTypes) {
+        try {
+          const stats = await workflowService.stats(ct.id).catch(() => null);
+          if (stats && typeof stats.total === "number") {
+            map[ct.id] = stats.total;
+            continue;
+          }
+        } catch {}
+        try {
+          const wf = await workflowService.entriesByStatus(ct.id).catch(() => []);
+          if (Array.isArray(wf)) {
+            map[ct.id] = wf.length;
+            continue;
+          }
+        } catch {}
+        try {
+          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100 });
+          map[ct.id] = Array.isArray(res.entries) ? res.entries.length : 0;
+        } catch {
+          map[ct.id] = 0;
+        }
+      }
+      if (active) {
+        const same = Object.keys(map).length === Object.keys(entriesCountByCT).length &&
+          Object.entries(map).every(([k, v]) => entriesCountByCT[Number(k)] === v);
+        if (!same) setEntriesCountByCT(map);
+      }
+    }
+    loadCounts();
+    return () => { active = false; };
+  }, [filteredIdsKey]);
 
   const handleSelectContentType = (contentTypeId: number) => {
     router.push(`/content-management/${contentTypeId}`);
@@ -88,7 +127,7 @@ export default function ContentManagementPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredContentTypes.map((contentType) => {
-            const entryCount = getEntryCount(contentType.id);
+            const fieldsCount = getFieldsCount(contentType);
             return (
               <Card
                 key={contentType.id}
@@ -115,15 +154,15 @@ export default function ContentManagementPage() {
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
                       <Database className="w-4 h-4" />
-                      <span>{contentType.fieldsCount} Fields</span>
+                      <span>{fieldsCount} Fields</span>
                     </div>
                     <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
                       <FileText className="w-4 h-4" />
-                      <span>{entryCount} Entries</span>
+                      <span>{entriesCountByCT[contentType.id] || 0} Entries</span>
                     </div>
                   </div>
 
-                  {contentType.enableSeo && (
+                  {contentType.enable_seo && (
                     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--border)]">
                       <span className="text-xs px-2 py-1 rounded bg-[var(--success)]/10 text-[var(--success)]">
                         SEO Enabled
