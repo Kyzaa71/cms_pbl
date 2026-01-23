@@ -1,6 +1,4 @@
 "use client";
-
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, Send } from "lucide-react";
 import { ApproveModal } from "./approve-modal";
@@ -8,6 +6,10 @@ import { RejectModal } from "./reject-modal";
 import { PublishModal } from "./publish-modal";
 import { WorkflowStatus } from "@/components/workflow-management/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useSearchParams } from "next/navigation";
+import { projectService } from "@/lib/services/project-service";
+import { useEffect, useState } from "react";
+
 
 interface ApprovalActionsProps {
   entryId: number;
@@ -33,11 +35,37 @@ export function ApprovalActions({
   const [showPublishModal, setShowPublishModal] = useState(false);
 
   const { user, can } = useAuth();
-  const roleName = (user?.role?.name || "").toLowerCase().trim();
-  const isRestricted = roleName === "content_writer" || roleName === "viewer" || roleName === "seo_specialist";
-  const canManager = !isRestricted && can("ContentEntry", "approve");
-  const canPublish = status === "approved" && Boolean(onPublish) && canManager;
-  const canEditor = can("ContentEntry", "update");
+  const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      if (!projectId || !user?.id) { setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    load();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
+  const globalRoleKey = ((user?.role?.name || "").toLowerCase().replace(/[\s_-]+/g, "").trim());
+  const projectRoleKey = ((projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "").trim());
+  const canApprove = status === "ready_for_approval" && (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin");
+  const canReject = status === "ready_for_approval" && (
+    projectRoleKey === "projectowner" ||
+    projectRoleKey === "projectadmin" ||
+    globalRoleKey === "manager" ||
+    globalRoleKey === "admin"
+  );
+  const canPublish = status === "approved" && Boolean(onPublish) && (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin");
+  const canBackToDraft = status === "rejected" && (projectRoleKey === "projectcontentwriter" || projectRoleKey === "projecteditor" || projectRoleKey === "projectadmin");
 
   const handleApprove = (comment?: string) => {
     onApprove(entryId, comment);
@@ -56,42 +84,44 @@ export function ApprovalActions({
 
   return (
     <>
-      <div className="flex gap-2 flex-wrap">
-        {status === "ready_for_approval" && canManager && (
+      <div className="flex gap-2 flex-nowrap">
+        {canApprove && (
           <>
             <Button
               onClick={() => setShowApproveModal(true)}
               size="sm"
-              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-green-600 hover:!bg-green-700 active:!bg-green-800 !text-white !border-green-600 hover:!border-green-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-green-600 hover:!bg-green-700 active:!bg-green-800 !text-white !border-green-600 hover:!border-green-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
             >
               <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
               Approve
             </Button>
-            <Button
-              onClick={() => setShowRejectModal(true)}
-              size="sm"
-              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--danger)] hover:!bg-[color-mix(in srgb, var(--danger) 85%, black)] active:!bg-[color-mix(in srgb, var(--danger) 75%, black)] !text-white !border-[var(--danger)] hover:!border-[color-mix(in srgb, var(--danger) 85%, black)] !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
-            >
-              <XCircle className="h-3.5 w-3.5 mr-1.5" />
-              Reject
-            </Button>
           </>
+        )}
+        {canReject && (
+          <Button
+            onClick={() => setShowRejectModal(true)}
+            size="sm"
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--danger)] hover:!bg-[color-mix(in srgb, var(--danger) 85%, black)] active:!bg-[color-mix(in srgb, var(--danger) 75%, black)] !text-white !border-[var(--danger)] hover:!border-[color-mix(in srgb, var(--danger) 85%, black)] !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
+          >
+            <XCircle className="h-3.5 w-3.5 mr-1.5" />
+            Reject
+          </Button>
         )}
         {canPublish && onPublish && (
           <Button
             onClick={() => setShowPublishModal(true)}
             size="sm"
-            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-purple-600 hover:!bg-purple-700 active:!bg-purple-800 !text-white !border-purple-600 hover:!border-purple-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-purple-600 hover:!bg-purple-700 active:!bg-purple-800 !text-white !border-purple-600 hover:!border-purple-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
           >
             <Send className="h-3.5 w-3.5 mr-1.5" />
             Publish
           </Button>
         )}
-        {status === "rejected" && !isRestricted && canEditor && onBackToDraft && (
+        {canBackToDraft && onBackToDraft && (
           <Button
             onClick={() => onBackToDraft(entryId)}
             size="sm"
-            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
           >
             Back to Draft
           </Button>

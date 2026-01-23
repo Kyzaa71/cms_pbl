@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { ArrowLeft, X } from "lucide-react";
 import { ContentType } from "@/types/backend-models";
 import { useContentType, contentActions } from "@/hooks/use-content";
 import { useAuth } from "@/hooks/use-auth";
+import { projectService } from "@/lib/services/project-service";
 
 function formatSlug(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -19,14 +20,18 @@ function formatSlug(name: string) {
 export default function EditContentTypePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
-  const contentTypeId = parseInt(params.id as string);
+  const rawCtId = (params as any).contentTypeId ?? params.id;
+  const contentTypeId = parseInt(String(rawCtId));
+  const projectId = searchParams.get("project_id");
   const { data: fetchedCT } = useContentType(contentTypeId);
   const [contentType, setContentType] = useState<ContentType | undefined>();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [enableSeo, setEnableSeo] = useState(false);
   const [autoGenerateSlug, setAutoGenerateSlug] = useState(false);
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   useEffect(() => {
     if (fetchedCT) {
@@ -36,6 +41,26 @@ export default function EditContentTypePage() {
       setEnableSeo(!!fetchedCT.enable_seo);
     }
   }, [fetchedCT]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      if (!projectId || !user?.id) {
+        setProjectRoleName("");
+        return;
+      }
+      try {
+        const members = await projectService.getProjectMembers(Number(projectId));
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -51,7 +76,11 @@ export default function EditContentTypePage() {
       return;
     }
     await contentActions.updateContentType(contentTypeId, { name, slug, enable_seo: enableSeo });
-    router.push(`/content-builder/${contentTypeId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/content-builder/${contentTypeId}?project_id=${projectId}`);
+    } else {
+      router.push(`/content-builder/${contentTypeId}`);
+    }
   };
 
   if (!contentType) {
@@ -70,8 +99,9 @@ export default function EditContentTypePage() {
     );
   }
 
-  const roleName = user?.role?.name || "";
-  const canEdit = roleName === "admin";
+  const roleName = (user?.role?.name || "").toLowerCase();
+  const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const canEdit = projectId ? (projectRoleKey === "projectadmin") : (roleName === "admin");
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -79,7 +109,13 @@ export default function EditContentTypePage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Link href={`/content-builder/${contentTypeId}`}>
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}?project_id=${projectId}`
+                  : `/content-builder/${contentTypeId}`
+              }
+            >
               <Button variant="ghost" size="sm" className="p-2">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
@@ -93,7 +129,13 @@ export default function EditContentTypePage() {
               </p>
             </div>
           </div>
-          <Link href={`/content-builder/${contentTypeId}`}>
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}?project_id=${projectId}`
+                : `/content-builder/${contentTypeId}`
+            }
+          >
             <button className="p-2 rounded hover:bg-[var(--hover)] transition-colors">
               <X className="w-5 h-5 text-[var(--muted-foreground)]" />
             </button>
@@ -163,7 +205,14 @@ export default function EditContentTypePage() {
 
           {/* Actions */}
           <div className="flex gap-3 pt-4">
-            <Link href={`/content-builder/${contentTypeId}`} className="flex-1">
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}?project_id=${projectId}`
+                  : `/content-builder/${contentTypeId}`
+              }
+              className="flex-1"
+            >
               <Button 
                 type="button" 
                 variant="outline" 

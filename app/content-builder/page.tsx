@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,18 +23,25 @@ import { ContentType } from "@/types/backend-models";
 import { useContentTypes, contentActions } from "@/hooks/use-content";
 import { contentService } from "@/lib/services/content-service";
 import { workflowService } from "@/lib/services/workflow-service";
+import { useAuth } from "@/hooks/use-auth";
+import { projectService } from "@/lib/services/project-service";
 
 export default function ContentBuilderPage() {
   const router = useRouter();
-  const { data: serverContentTypes } = useContentTypes();
+  const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const { data: serverContentTypes } = useContentTypes(projectId);
+  const { user } = useAuth();
   const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [seoFilter, setSeoFilter] = useState<string>("all");
   const [entriesCountByCT, setEntriesCountByCT] = useState<Record<number, number>>({});
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   useEffect(() => {
     setContentTypes(serverContentTypes || []);
-  }, [serverContentTypes]);
+  }, [serverContentTypes, projectId]);
 
   useEffect(() => {
     let active = true;
@@ -49,14 +56,14 @@ export default function ContentBuilderPage() {
           }
         } catch {}
         try {
-          const wf = await workflowService.entriesByStatus(ct.id).catch(() => []);
+          const wf = await workflowService.entriesByStatus(ct.id, undefined, projectId).catch(() => []);
           if (Array.isArray(wf) && wf.length >= 0) {
             map[ct.id] = wf.length;
             continue;
           }
         } catch {}
         try {
-          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100 });
+          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100, project_id: projectId });
           map[ct.id] = Array.isArray(res.entries) ? res.entries.length : 0;
         } catch {
           map[ct.id] = 0;
@@ -66,7 +73,29 @@ export default function ContentBuilderPage() {
     }
     loadCounts();
     return () => { active = false; };
-  }, [serverContentTypes]);
+  }, [serverContentTypes, projectId]);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchRole() {
+      if (!projectId || !user?.id) { setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    }
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
+
+  const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const canCreateType = ["projectadmin", "projecteditor", "projectcontentwriter"].includes(projectRoleKey);
+  const canEditType = ["projectadmin"].includes(projectRoleKey);
+  const canDeleteType = ["projectadmin"].includes(projectRoleKey);
 
   // Filter content types
   const filteredContentTypes = contentTypes.filter((ct) => {
@@ -90,15 +119,30 @@ export default function ContentBuilderPage() {
 
   // Handlers
   const handleView = (contentTypeId: number) => {
-    router.push(`/content-builder/${contentTypeId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/content-builder/${contentTypeId}?project_id=${projectId}`);
+    } else {
+      router.push(`/content-builder/${contentTypeId}`);
+    }
   };
 
   const handleEdit = (contentTypeId: number) => {
-    router.push(`/content-builder/${contentTypeId}/edit`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/content-builder/${contentTypeId}/edit?project_id=${projectId}`);
+    } else {
+      router.push(`/content-builder/${contentTypeId}/edit`);
+    }
   };
 
   const handleManageEntries = (contentTypeId: number) => {
-    router.push(`/content-management?type=${contentTypeId}`);
+    if (projectId) {
+      const qs = new URLSearchParams();
+      qs.set("project_id", String(projectId));
+      qs.set("type", String(contentTypeId));
+      router.push(`/organizational/${projectId}/workspace/entries?${qs.toString()}`);
+    } else {
+      router.push(`/content-management?type=${contentTypeId}`);
+    }
   };
 
   const handleDelete = async (contentType: ContentType) => {
@@ -135,8 +179,11 @@ export default function ContentBuilderPage() {
             Create and manage content types, fields, and schemas for your CMS
           </p>
         </div>
-        <Link href="/content-builder/create">
-          <Button className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2">
+        <Link href={projectId ? `/organizational/${projectId}/workspace/content-builder/create?project_id=${projectId}` : "/content-builder/create"}>
+          <Button
+            disabled={projectId ? !canCreateType : false}
+            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Plus className="w-4 h-4" />
             Create Content Type
           </Button>
@@ -296,6 +343,7 @@ export default function ContentBuilderPage() {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
+                      {(projectId ? canEditType : true) && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -305,6 +353,7 @@ export default function ContentBuilderPage() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -314,6 +363,7 @@ export default function ContentBuilderPage() {
                       >
                         <FileText className="h-4 w-4" />
                       </Button>
+                      {(projectId ? canDeleteType : true) && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -323,6 +373,7 @@ export default function ContentBuilderPage() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

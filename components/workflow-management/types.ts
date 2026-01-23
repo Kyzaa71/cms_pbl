@@ -414,10 +414,9 @@ export const dummyAssignments: WorkflowAssignment[] = [
 
 // Dummy Workflow Transitions (based on backend seed.go)
 export const dummyTransitions: WorkflowTransition[] = [
-  { id: 1, fromStatus: "draft", toStatus: "in_review", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 2, fromStatus: "draft", toStatus: "in_review", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 3, fromStatus: "draft", toStatus: "rejected", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 4, fromStatus: "draft", toStatus: "rejected", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 1, fromStatus: "draft", toStatus: "in_review", requiredRole: "content_writer", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 2, fromStatus: "draft", toStatus: "in_review", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 3, fromStatus: "draft", toStatus: "in_review", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
   { id: 5, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
   
   { id: 6, fromStatus: "in_review", toStatus: "ready_for_approval", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },

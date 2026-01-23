@@ -17,7 +17,8 @@ import { generateValidationRules } from "@/components/content-builder/field-vali
 export default function FieldValidationPage() {
   const params = useParams();
   const router = useRouter();
-  const contentTypeId = parseInt(params.id as string);
+  const rawCtId = (params as any).contentTypeId ?? params.id;
+  const contentTypeId = parseInt(String(rawCtId));
   const fieldId = parseInt(params.fieldId as string);
 
   const [contentType, setContentType] = useState<ContentType | undefined>();

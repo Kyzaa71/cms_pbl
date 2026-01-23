@@ -21,19 +21,25 @@ import { contentService } from "@/lib/services/content-service";
 import { workflowService } from "@/lib/services/workflow-service";
 import { useContentType } from "@/hooks/use-content";
 import { FieldsList } from "@/components/content-builder/fields-list";
+import { useAuth } from "@/hooks/use-auth";
+import { projectService } from "@/lib/services/project-service";
 
 export default function ContentTypeDetailPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const contentTypeId = parseInt(params.id as string);
+  const rawCtId = (params as any).contentTypeId ?? params.id;
+  const contentTypeId = parseInt(String(rawCtId));
+  const projectId = searchParams.get("project_id");
   
-  const { data: fetchedCT, refetch: refetchCT } = useContentType(contentTypeId);
+  const { data: fetchedCT, refetch: refetchCT } = useContentType(contentTypeId, projectId ? Number(projectId) : undefined);
+  const { user } = useAuth();
   const [contentType, setContentType] = useState<ContentType | undefined>();
   const [fields, setFields] = useState<ContentField[]>([]);
   const [entriesCount, setEntriesCount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"overview" | "fields">("overview");
   const [refreshing, setRefreshing] = useState(false);
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   useEffect(() => {
     if (fetchedCT) {
@@ -72,6 +78,24 @@ export default function ContentTypeDetailPage() {
     return () => { active = false; };
   }, [contentTypeId]);
 
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      const pid = projectId ? Number(projectId) : undefined;
+      if (!pid || !user?.id) { setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(pid);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
+
   async function handleRefresh() {
     try {
       setRefreshing(true);
@@ -103,16 +127,27 @@ export default function ContentTypeDetailPage() {
     if (tabParam === "fields") {
       setActiveTab("fields");
       // Clean up the URL by removing the query parameter after switching
-      router.replace(`/content-builder/${contentTypeId}`, { scroll: false });
+      router.replace(
+        projectId
+          ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}`
+          : `/content-builder/${contentTypeId}`,
+        { scroll: false }
+      );
     }
-  }, [searchParams, contentTypeId, router]);
+  }, [searchParams, contentTypeId, router, projectId]);
 
   if (!contentType) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <p className="text-[var(--muted-foreground)]">Content type not found</p>
-          <Link href="/content-builder">
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/content-builder`
+                : "/content-builder"
+            }
+          >
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Content Types
@@ -125,13 +160,22 @@ export default function ContentTypeDetailPage() {
 
   const regularFields = fields.filter((f) => !f.is_seo);
   const seoFields = fields.filter((f) => f.is_seo);
+  const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const canEditType = projectId ? projectRoleKey === "projectadmin" : true;
+  const canAddField = projectId ? (projectRoleKey === "projectadmin" || projectRoleKey === "projectcontentwriter") : true;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/content-builder">
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/content-builder`
+                : "/content-builder"
+            }
+          >
             <Button variant="ghost" size="sm" className="p-2">
               <ArrowLeft className="w-4 h-4" />
             </Button>
@@ -146,13 +190,28 @@ export default function ContentTypeDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href={`/content-builder/${contentTypeId}/edit`}>
-            <Button className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer flex items-center gap-2">
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}/edit`
+                : `/content-builder/${contentTypeId}/edit`
+            }
+          >
+            <Button
+              disabled={!canEditType}
+              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
               <Pencil className="w-4 h-4" />
               Edit
             </Button>
           </Link>
-          <Link href={`/content-management?type=${contentTypeId}`}>
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/entries/${contentTypeId}`
+                : `/content-management?type=${contentTypeId}`
+            }
+          >
             <Button className="flex items-center gap-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] !text-white">
               <FileText className="w-4 h-4" />
               Manage Entries
@@ -305,10 +364,18 @@ export default function ContentTypeDetailPage() {
               <div>
                 <h3 className="text-lg font-semibold text-[var(--foreground)] mb-4">
                   Quick Actions
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Link href={`/content-builder/${contentTypeId}/fields/create`}>
-                    <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)] hover:border-[var(--primary)] transition-colors cursor-pointer">
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Link
+                    href={
+                      projectId
+                        ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}/fields/create`
+                        : `/content-builder/${contentTypeId}/fields/create`
+                    }
+                  >
+                    <Card
+                      className={`p-4 bg-[var(--card-bg-inner)] border border-[var(--border)] ${canAddField ? "hover:border-[var(--primary)] cursor-pointer" : "opacity-60 cursor-not-allowed"}`}
+                    >
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-[var(--primary)]/10 rounded">
                           <Plus className="w-5 h-5 text-[var(--primary)]" />
@@ -324,7 +391,13 @@ export default function ContentTypeDetailPage() {
                       </div>
                     </Card>
                   </Link>
-                  <Link href={`/content-management?type=${contentTypeId}`}>
+                  <Link
+                    href={
+                      projectId
+                        ? `/organizational/${projectId}/workspace/entries/${contentTypeId}`
+                        : `/content-management?type=${contentTypeId}`
+                    }
+                  >
                     <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)] hover:border-[var(--primary)] transition-colors cursor-pointer">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-[var(--success)]/10 rounded">
@@ -341,7 +414,13 @@ export default function ContentTypeDetailPage() {
                       </div>
                     </Card>
                   </Link>
-                  <Link href={`/content-builder/${contentTypeId}/api-reference`}>
+                  <Link
+                    href={
+                      projectId
+                        ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}/api-reference`
+                        : `/content-builder/${contentTypeId}/api-reference`
+                    }
+                  >
                     <Card className="p-4 bg-[var(--card-bg-inner)] border border-[var(--border)] hover:border-[var(--primary)] transition-colors cursor-pointer">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-[var(--secondary)]/10 rounded">
@@ -368,6 +447,7 @@ export default function ContentTypeDetailPage() {
               contentTypeId={contentTypeId}
               fields={fields}
               onFieldsChange={setFields}
+              projectId={projectId ? Number(projectId) : undefined}
             />
           )}
         </div>

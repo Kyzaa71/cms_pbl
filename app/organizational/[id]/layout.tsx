@@ -34,47 +34,60 @@ export default function OrgLayout({
   ];
 
   return (
-    <div className="flex h-screen bg-[var(--background)] text-[var(--foreground)] transition-colors duration-300">
-      {/* Sidebar */}
-      <aside
-        className="w-64 bg-[var(--sidebar-bg)] text-[var(--sidebar-text)] 
-        border-r border-[var(--border)] p-4 shadow-sm transition-colors duration-300"
-      >
-        <h2 className="text-lg font-semibold mb-6">Organizational</h2>
-
-        <nav className="flex flex-col space-y-2">
-          {menuItems.map((item) => {
-            const isActive = pathname === item.href;
-
-            return (
-              <Link
-                key={item.title}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200",
-                  isActive
-                    ? "text-[var(--primary)] bg-[color-mix(in srgb, var(--primary) 10%, transparent)]"
-                    : "text-[var(--sidebar-text)] hover:bg-[var(--sidebar-hover)] hover:text-[var(--primary)]"
-                )}
-              >
-                <item.icon
-                  className={cn(
-                    "w-4 h-4 transition-colors duration-200",
-                    isActive
-                      ? "text-[var(--primary)]"
-                      : "text-[var(--muted-foreground)] group-hover:text-[var(--primary)]"
-                  )}
-                />
-                {item.title}
+    <div className="flex flex-col min-h-screen bg-[var(--background)] text-[var(--foreground)] transition-colors duration-300">
+      <header className="sticky top-0 z-30 bg-[var(--card-bg-inner)]/80 backdrop-blur border-b border-[var(--border)]">
+        <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <h2 className="text-lg font-semibold">
+              <Link href="/organizational" className="inline-flex items-center gap-2 hover:opacity-90 transition-opacity">
+                <span className="bg-[var(--primary)] text-[var(--primary-foreground)] p-1 rounded-md">
+                  <FolderKanban className="w-5 h-5" />
+                </span>
+                <span>Organizational</span>
               </Link>
-            );
-          })}
-        </nav>
-      </aside>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto p-6 bg-[var(--background)] text-[var(--foreground)] transition-colors duration-300">
-        {children}
+            </h2>
+            <div className="h-6 w-px bg-[var(--border)]" />
+            <nav className="flex items-center gap-1">
+              {menuItems.map((item) => {
+                const isActive = item.href === `/organizational/${id}`
+                  ? pathname === item.href
+                  : pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.title}
+                    href={item.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "group relative inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    )}
+                  >
+                    <item.icon
+                      className={cn(
+                        "w-4 h-4",
+                        isActive ? "text-[var(--primary)]" : "text-[var(--muted-foreground)] group-hover:text-[var(--primary)]"
+                      )}
+                    />
+                    <span>{item.title}</span>
+                    <span
+                      className={cn(
+                        "absolute left-3 right-3 -bottom-[1px] h-[2px] rounded-full transition-all",
+                        isActive ? "bg-[var(--primary)]" : "bg-transparent group-hover:bg-[var(--border)]"
+                      )}
+                    />
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
+      </header>
+      <main className="flex-1">
+        <div className="mx-auto max-w-7xl px-6 py-6">
+          {children}
+        </div>
       </main>
     </div>
   );

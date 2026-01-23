@@ -22,9 +22,10 @@ interface FieldsListProps {
   contentTypeId: number;
   fields: FieldUnion[];
   onFieldsChange: (fields: FieldUnion[]) => void;
+  projectId?: number;
 }
 
-export function FieldsList({ contentTypeId, fields, onFieldsChange }: FieldsListProps) {
+export function FieldsList({ contentTypeId, fields, onFieldsChange, projectId }: FieldsListProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingField, setEditingField] = useState<FieldUnion | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function FieldsList({ contentTypeId, fields, onFieldsChange }: FieldsList
   const handleDelete = async (field: FieldUnion) => {
     if (!confirm(`Are you sure you want to delete field "${(field as any).name}"?`)) return;
     try {
-      await contentActions.deleteField((field as any).id);
+      await contentActions.deleteField(contentTypeId, (field as any).id, projectId);
       try {
         const ct = await contentService.getContentType(contentTypeId);
         const updated = ([...(ct.fields || []), ...(ct.seo_fields || [])] as any);
@@ -77,10 +78,16 @@ export function FieldsList({ contentTypeId, fields, onFieldsChange }: FieldsList
     if (fieldData.placeholder) payload.placeholder = fieldData.placeholder;
     if (fieldData.helpText) payload.help_text = fieldData.helpText;
 
-    if (editingField) {
-      await contentActions.updateField((editingField as any).id, payload);
-    } else {
-      await contentActions.addField(contentTypeId, payload);
+    try {
+      if (editingField) {
+        await contentActions.updateField(contentTypeId, (editingField as any).id, payload, projectId);
+      } else {
+        await contentActions.addField(contentTypeId, payload, projectId);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg || "Failed to save field");
+      return;
     }
     try {
       const ct = await contentService.getContentType(contentTypeId);

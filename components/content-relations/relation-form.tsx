@@ -15,6 +15,7 @@ interface RelationFormProps {
     toContentId?: number;
     relationType?: RelationType;
   };
+  projectId?: number;
 }
 
 export function RelationForm({
@@ -22,6 +23,7 @@ export function RelationForm({
   onSubmit,
   onCancel,
   initialData,
+  projectId,
 }: RelationFormProps) {
   const [fromContentIdLocal, setFromContentIdLocal] = useState<number>(fromContentId || 0);
   const [toContentId, setToContentId] = useState<number>(initialData?.toContentId || 0);
@@ -49,6 +51,7 @@ export function RelationForm({
           onChange={setFromContentIdLocal}
           label="From Entry"
           placeholder="Search for source entry..."
+          projectId={projectId}
         />
       ) : (
         <div>
@@ -66,6 +69,7 @@ export function RelationForm({
         excludeEntryId={fromContentId}
         label="To Entry"
         placeholder="Search for target entry..."
+        projectId={projectId}
       />
 
       {/* Relation Type Selector */}

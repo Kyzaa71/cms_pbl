@@ -53,7 +53,7 @@ export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
       email: formData.email,
       roleId: formData.roleId,
       status: formData.status,
-      ...(mode === "create" ? { password: formData.password } : {}),
+      ...(formData.password ? { password: formData.password } : {}),
     });
   };
 
@@ -128,20 +128,18 @@ export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
             </Select>
           </div>
 
-          {mode === "create" && (
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="Enter password"
-                required
-                className="mt-1 bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)]"
-              />
-            </div>
-          )}
+          <div>
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              placeholder={mode === "create" ? "Enter password" : "Leave blank to keep current password"}
+              required={mode === "create"}
+              className="mt-1 bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)]"
+            />
+          </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
             <Button

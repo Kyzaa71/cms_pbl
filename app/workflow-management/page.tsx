@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,13 +29,18 @@ import type { User, WorkflowHistory } from "@/types/backend-models";
 import type { WorkflowStatus } from "@/components/workflow-management/types";
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/lib/api-client";
+import { projectService } from "@/lib/services/project-service";
  
 
 export default function WorkflowManagementPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
   const { can, user, getCurrentUser, token } = useAuth();
-  const { data: contentTypes } = useContentTypes();
+  const { data: contentTypes, loading: ctLoading } = useContentTypes(projectId);
   const [entries, setEntries] = useState<ContentEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [contentTypeFilter, setContentTypeFilter] = useState<string>("all");
@@ -44,6 +49,7 @@ export default function WorkflowManagementPage() {
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [selectedToStatus, setSelectedToStatus] = useState<WorkflowStatus | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [previewingId, setPreviewingId] = useState<number | null>(null);
   const roleName = (() => {
     let r = "";
     let tk: string | null = null;
@@ -64,26 +70,63 @@ export default function WorkflowManagementPage() {
     if (!r) r = ((user?.role?.name || "").toLowerCase().trim());
     return r || "viewer";
   })();
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      if (!projectId || !user?.id) { setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
+  const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const globalRoleKey = (roleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const orgCanTransition = (from: WorkflowStatus, to: WorkflowStatus): boolean => {
+    if (from === "draft" && to === "in_review") return ["projectcontentwriter", "projecteditor", "projectadmin"].includes(projectRoleKey);
+    if (from === "in_review" && to === "ready_for_approval") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
+    if (from === "in_review" && to === "rejected") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
+    if (from === "in_review" && to === "draft") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
+    if (from === "ready_for_approval" && to === "approved") return ["projectowner", "projectadmin"].includes(projectRoleKey);
+    if (from === "ready_for_approval" && to === "rejected") return ["manager", "admin"].includes(globalRoleKey);
+    if (from === "approved" && to === "published") return ["projectowner", "projectadmin"].includes(projectRoleKey);
+    if (from === "rejected" && to === "draft") return ["projectcontentwriter", "projecteditor", "projectadmin"].includes(projectRoleKey);
+    return false;
+  };
 
   // Removed auto-refresh of current user to avoid excessive /auth/refresh calls
 
   useEffect(() => {
     const load = async () => {
-      if (contentTypeFilter !== "all") {
-        const ctId = parseInt(contentTypeFilter);
-        const list = await workflowService.entriesByStatus(ctId, statusFilter === "all" ? undefined : statusFilter);
-        setEntries(list);
-      } else if ((contentTypes || []).length > 0) {
-        const all: ContentEntry[] = [];
-        for (const ct of contentTypes!) {
-          const list = await workflowService.entriesByStatus(ct.id, statusFilter === "all" ? undefined : statusFilter);
-          all.push(...list);
+      if (ctLoading) return;
+      setEntriesLoading(true);
+      setEntries([]);
+      try {
+        if (contentTypeFilter !== "all") {
+          const ctId = parseInt(contentTypeFilter);
+          const list = await workflowService.entriesByStatus(ctId, statusFilter === "all" ? undefined : statusFilter, projectId);
+          setEntries(list);
+        } else if ((contentTypes || []).length > 0) {
+          const all: ContentEntry[] = [];
+          for (const ct of contentTypes!) {
+            const list = await workflowService.entriesByStatus(ct.id, statusFilter === "all" ? undefined : statusFilter, projectId);
+            all.push(...list);
+          }
+          setEntries(all);
         }
-        setEntries(all);
+      } finally {
+        setEntriesLoading(false);
       }
     };
     load();
-  }, [contentTypes, contentTypeFilter, statusFilter]);
+  }, [ctLoading, contentTypes, contentTypeFilter, statusFilter, projectId]);
 
   // Filter entries
   const filteredEntries = entries.filter((entry) => {
@@ -155,7 +198,7 @@ export default function WorkflowManagementPage() {
   const handleSubmitStatus = async (comment: string) => {
     if (!selectedEntryId || !selectedToStatus) return;
     const from = (((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
-    if (!isValidTransition(from, selectedToStatus as WorkflowStatus, roleName)) {
+    if (!orgCanTransition(from, selectedToStatus as WorkflowStatus)) {
       setShowStatusModal(false);
       setSelectedToStatus(null);
       setSelectedEntryId(null);
@@ -165,15 +208,25 @@ export default function WorkflowManagementPage() {
     try {
       if (selectedToStatus === "in_review") {
         updated = await workflowService.requestReview(selectedEntryId, { comment });
+      } else if (selectedToStatus === "ready_for_approval") {
+        updated = await workflowService.changeStatus(selectedEntryId, { status: "ready_for_approval", comment });
       } else if (selectedToStatus === "approved") {
-        updated = await workflowService.approve(selectedEntryId, { comment });
-      } else if (selectedToStatus === "published") {
-        updated = await workflowService.publish(selectedEntryId, { comment });
-      } else if (selectedToStatus === "rejected") {
-        if (roleName === "editor" && from === "in_review") {
-          updated = await workflowService.changeStatus(selectedEntryId, { status: "rejected", comment });
+        if (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin") {
+          updated = await workflowService.changeStatus(selectedEntryId, { status: "approved", comment });
         } else {
+          updated = await workflowService.approve(selectedEntryId, { comment });
+        }
+      } else if (selectedToStatus === "published") {
+        if (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin") {
+          updated = await workflowService.changeStatus(selectedEntryId, { status: "published", comment });
+        } else {
+          updated = await workflowService.publish(selectedEntryId, { comment });
+        }
+      } else if (selectedToStatus === "rejected") {
+        if (from === "ready_for_approval") {
           updated = await workflowService.reject(selectedEntryId, { comment });
+        } else {
+          updated = await workflowService.changeStatus(selectedEntryId, { status: "rejected", comment });
         }
       } else {
         updated = await workflowService.changeStatus(selectedEntryId, { status: selectedToStatus, comment });
@@ -200,7 +253,25 @@ export default function WorkflowManagementPage() {
   }), [entries]);
 
   const handleView = (entryId: number) => {
-    router.push(`/workflow-management/${entryId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/workflow/${entryId}?project_id=${projectId}`);
+    } else {
+      router.push(`/workflow-management/${entryId}`);
+    }
+  };
+
+  const handlePreview = async (entryId: number) => {
+    try {
+      setPreviewingId(entryId);
+      const { token } = await contentService.previewToken(entryId);
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const target = `${origin}/preview?entry_id=${entryId}&token=${encodeURIComponent(token)}`;
+      window.open(target, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      alert((e as Error)?.message || "Failed to open preview");
+    } finally {
+      setPreviewingId(null);
+    }
   };
 
   
@@ -218,13 +289,13 @@ export default function WorkflowManagementPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/workflow-management/statistics">
+          <Link href={projectId ? `/organizational/${projectId}/workspace/workflow/statistics?project_id=${projectId}` : "/workflow-management/statistics"}>
             <Button variant="outline" className="flex items-center gap-2">
               <FileText className="w-4 h-4" />
               Statistics
             </Button>
           </Link>
-          <Link href="/workflow-management/assignments">
+          <Link href={projectId ? `/organizational/${projectId}/workspace/workflow/assignments?project_id=${projectId}` : "/workflow-management/assignments"}>
             <Button variant="outline" className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
               My Assignments
@@ -354,8 +425,9 @@ export default function WorkflowManagementPage() {
       </Card>
 
       {/* Entries Table */}
-      <div className="overflow-hidden border border-[var(--border)] rounded-md shadow-sm bg-[var(--card-bg-inner)]">
-        <table className="w-full border-collapse text-sm">
+      {entriesLoading ? null : (
+      <div className="overflow-x-auto border border-[var(--border)] rounded-md shadow-sm bg-[var(--card-bg-inner)]">
+        <table className="min-w-[800px] w-full border-collapse text-sm">
           <thead>
             <tr className="bg-[var(--table-header-bg)] text-[var(--table-header-text)] text-left">
               <th className="py-3 px-4 font-medium">Title</th>
@@ -415,89 +487,114 @@ export default function WorkflowManagementPage() {
                           })()}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="text-sm text-[var(--foreground)]">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-[var(--foreground)] truncate max-w-[120px]" title={(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            return user?.name || "Unknown";
+                        })()}>
                           {(() => {
                             const user = creators[entry.id] ?? entry.creator ?? undefined;
-                            const name = user?.name || "Unknown";
-                            const email = user?.email || "";
-                            return email ? `${name} - ${email}` : String(name);
+                            return user?.name || "Unknown";
                           })()}
-                        </p>
+                        </span>
+                        <span className="text-xs text-[var(--muted-foreground)] truncate max-w-[120px]" title={(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            return user?.email || "";
+                        })()}>
+                          {(() => {
+                            const user = creators[entry.id] ?? entry.creator ?? undefined;
+                            return user?.email || "";
+                          })()}
+                        </span>
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-[var(--muted-foreground)]">
+                  <td className="py-3 px-4 text-[var(--muted-foreground)] whitespace-nowrap">
                     {new Date(entry.updated_at || Date.now()).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4">
                     {(() => {
                       const actor = actionUsers[entry.id];
-                      if (!actor) return "-";
+                      if (!actor) return <span className="text-[var(--muted-foreground)]">-</span>;
                       const name = actor.name || "";
                       const email = actor.email || "";
-                      return email ? `${name} - ${email}` : name || "-";
+                      return (
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-[var(--foreground)] truncate max-w-[120px]" title={name}>{name || "-"}</span>
+                            {email && <span className="text-xs text-[var(--muted-foreground)] truncate max-w-[120px]" title={email}>{email}</span>}
+                        </div>
+                      );
                     })()}
                   </td>
                   <td className="py-3 px-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="flex items-center justify-end gap-2 flex-nowrap whitespace-nowrap">
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleView(entry.id)}
-                        className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)]"
+                        className="text-[var(--primary)] hover:text-[color-mix(in srgb, var(--primary) 80%, black)] shrink-0"
                         title="View Details"
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handlePreview(entry.id)}
+                        className="!font-medium !text-xs !px-3 !py-1.5 bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[color-mix(in srgb, var(--primary) 85%, black)] shrink-0"
+                        title="Preview Entry"
+                        disabled={previewingId === entry.id}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        Preview
+                      </Button>
                       {(() => {
                         const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
-                        const allow = status === "draft" && can("ContentEntry", "update") && isValidTransition(status, "in_review", roleName);
+                        const allow = status === "draft" && orgCanTransition(status, "in_review");
                         return allow;
                       })() && (
                         <Button
                           size="sm"
                           onClick={() => handleRowStatusChange(entry.id, "in_review")}
-                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-blue-600 hover:!bg-blue-700 active:!bg-blue-800 !text-white !border-blue-600 hover:!border-blue-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-blue-600 hover:!bg-blue-700 active:!bg-blue-800 !text-white !border-blue-600 hover:!border-blue-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
                         >
                           Request Review
                         </Button>
                       )}
                       {(() => {
                         const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
-                        const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "ready_for_approval", roleName);
+                        const allow = status === "in_review" && orgCanTransition(status, "ready_for_approval");
                         return allow;
                       })() && (
                         <>
                           <Button
                             size="sm"
                             onClick={() => handleRowStatusChange(entry.id, "ready_for_approval")}
-                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer !text-xs !px-3 !py-1..."
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
                           >
                             Ready for Approval
                           </Button>
                           {(() => {
                             const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
-                            const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "rejected", roleName);
+                            const allow = status === "in_review" && orgCanTransition(status, "rejected");
                             return allow;
                           })() && (
                           <Button
                             size="sm"
                             onClick={() => handleRowStatusChange(entry.id, "rejected")}
-                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--danger)] hover:!bg-[color-mix(in srgb, var(--danger) 85%, black)] active:!bg-[color-mix(in srgb, var(--danger) 75%, black)] !text-white !bo..."
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--danger)] hover:!bg-[color-mix(in srgb, var(--danger) 85%, black)] active:!bg-[color-mix(in srgb, var(--danger) 75%, black)] !text-white !border-[var(--danger)] hover:!border-[color-mix(in srgb, var(--danger) 85%, black)] !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
                           >
                             Reject
                           </Button>
                           )}
                           {(() => {
                             const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
-                            const allow = status === "in_review" && can("ContentEntry", "update") && isValidTransition(status, "draft", roleName);
+                            const allow = status === "in_review" && orgCanTransition(status, "draft");
                             return allow;
                           })() && (
                           <Button
                             size="sm"
                             onClick={() => handleRowStatusChange(entry.id, "draft")}
-                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
                           >
                             Back to Draft
                           </Button>
@@ -506,13 +603,13 @@ export default function WorkflowManagementPage() {
                       )}
                       {(() => {
                         const status = ((entry.status || "") as string).toLowerCase().trim() as WorkflowStatus;
-                        const allow = status === "rejected" && can("ContentEntry", "update") && isValidTransition(status, "draft", roleName);
+                        const allow = status === "rejected" && orgCanTransition(status, "draft");
                         return allow;
                       })() && (
                         <Button
                           size="sm"
                           onClick={() => handleRowStatusChange(entry.id, "draft")}
-                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto"
+                          className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-gray-600 hover:!bg-gray-700 active:!bg-gray-800 !text-white !border-gray-600 hover:!border-gray-700 !cursor-pointer !text-xs !px-3 !py-1.5 !h-auto shrink-0"
                         >
                           Back to Draft
                         </Button>
@@ -535,15 +632,15 @@ export default function WorkflowManagementPage() {
           </tbody>
         </table>
       </div>
+      )}
       <StatusTransitionModal
         isOpen={showStatusModal}
         onClose={() => { setShowStatusModal(false); setSelectedToStatus(null); setSelectedEntryId(null); }}
         fromStatus={(((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus}
         toStatus={(((selectedToStatus || "draft") as string).toLowerCase().trim()) as WorkflowStatus}
         requireComment={(() => {
-          const from = (((entries.find((e) => e.id === selectedEntryId)?.status || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
           const to = (((selectedToStatus || "draft") as string).toLowerCase().trim()) as WorkflowStatus;
-          return from === "in_review" && to === "rejected" && roleName === "editor";
+          return to === "rejected";
         })()}
         onSubmit={handleSubmitStatus}
       />

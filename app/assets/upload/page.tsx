@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
@@ -8,6 +8,7 @@ import { MediaUploadForm } from "@/components/media-assets/media-upload-form";
 import type { MediaFolder } from "@/types/backend-models";
 import { mediaService } from "@/lib/services/media-service";
 import { useAuth } from "@/hooks/use-auth";
+import { projectService } from "@/lib/services/project-service";
 
 interface UploadFile {
   file: File;
@@ -19,14 +20,39 @@ export default function UploadMediaPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const mode = (searchParams.get("mode") || "single") as "single" | "bulk";
-  const { can, getCurrentUser } = useAuth();
-  const canUpload = can("Media", "create");
+  const projectIdParam = useMemo(() => {
+    const v = Number(searchParams.get("project_id") || 0);
+    return Number.isFinite(v) && v > 0 ? v : undefined;
+  }, [searchParams]);
+  const { can, user, getCurrentUser } = useAuth();
+  const roleName = (user?.role?.name || "").toLowerCase();
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      if (!projectIdParam || !user?.id) { if (active) setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(projectIdParam);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectIdParam, user?.id]);
+  const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+  const canUpload =
+    can("Media", "create") ||
+    roleName === "projectadmin" ||
+    ["projectadmin", "projecteditor", "projectcontentwriter"].includes(projectRoleKey);
   const [folders, setFolders] = useState<MediaFolder[]>([]);
   useEffect(() => {
-    mediaService.listFolders().then(setFolders).catch(() => setFolders([]));
+    mediaService.listFolders(projectIdParam).then(setFolders).catch(() => setFolders([]));
     (async () => { try { await getCurrentUser(); } catch {} })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [projectIdParam, getCurrentUser]);
 
   const handleUpload = (
     files: UploadFile[],
@@ -40,15 +66,17 @@ export default function UploadMediaPage() {
     if (mode === "single") {
       const f = files[0]?.file;
       if (!f) return;
-      mediaService.upload(f, metadata).then(() => {
-        router.push("/assets");
+      mediaService.upload(f, { ...metadata, project_id: projectIdParam }).then(() => {
+        if (projectIdParam) router.push(`/organizational/${projectIdParam}/workspace/media`);
+        else router.push("/assets");
       }).catch((e) => {
         alert(e?.message || "Failed to upload file");
       });
     } else {
       const fs = files.map((x) => x.file);
-      mediaService.bulkUpload(fs, metadata.folder).then(() => {
-        router.push("/assets");
+      mediaService.bulkUpload(fs, metadata.folder, projectIdParam).then(() => {
+        if (projectIdParam) router.push(`/organizational/${projectIdParam}/workspace/media`);
+        else router.push("/assets");
       }).catch((e) => {
         alert(e?.message || "Failed to upload files");
       });
@@ -56,7 +84,8 @@ export default function UploadMediaPage() {
   };
 
   const handleCancel = () => {
-    router.push("/assets");
+    if (projectIdParam) router.push(`/organizational/${projectIdParam}/workspace/media`);
+    else router.push("/assets");
   };
 
   if (!canUpload) {
@@ -66,7 +95,7 @@ export default function UploadMediaPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.push("/assets")}
+            onClick={() => handleCancel()}
             className="hover:bg-[var(--card-bg)]"
           >
             <ArrowLeft className="w-4 h-4" />

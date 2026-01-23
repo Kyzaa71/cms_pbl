@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,16 +30,21 @@ import { contentService } from "@/lib/services/content-service";
 import { workflowService } from "@/lib/services/workflow-service";
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/lib/api-client";
+import { projectService } from "@/lib/services/project-service";
  
 
 export default function ContentEntriesPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { can, user, getCurrentUser } = useAuth();
   
   const rawParam = params.contentTypeId as string;
-  const { data: allCTs } = useContentTypes();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const { data: allCTs } = useContentTypes(projectId);
   const [resolvedId, setResolvedId] = useState<number | null>(null);
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   // Resolve param: accept numeric id or slug
   useEffect(() => {
@@ -63,8 +68,13 @@ export default function ContentEntriesPage() {
   const [createdByFilter, setCreatedByFilter] = useState<string>("all");
   const [creators, setCreators] = useState<Record<number, User>>({});
   const entriesParams = useMemo(() => {
-    return { page, limit: 10, status: statusFilter !== "all" ? statusFilter : undefined } as { page?: number; limit?: number; status?: string };
-  }, [page, statusFilter]);
+    return {
+      page,
+      limit: 10,
+      status: statusFilter !== "all" ? statusFilter : undefined,
+      project_id: projectId,
+    } as { page?: number; limit?: number; status?: string; project_id?: number };
+  }, [page, statusFilter, projectId]);
   const { data: entries, meta, error: entriesError, refetch } = useEntries(resolvedId || 0, entriesParams);
 
   useEffect(() => {
@@ -89,6 +99,27 @@ export default function ContentEntriesPage() {
   }, [entries]);
   // Removed auto refresh to avoid spamming /auth/refresh and hitting rate limit
   
+
+  // Fetch current user's project role (if in project context)
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      if (!projectId || !user?.id) {
+        setProjectRoleName("");
+        return;
+      }
+      try {
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
 
   // Filter entries
   const filteredEntries = entries.filter((entry) => {
@@ -124,16 +155,24 @@ export default function ContentEntriesPage() {
   // Handlers
   const handleView = (entryId: number) => {
     if (!resolvedId) return;
-    router.push(`/content-management/${resolvedId}/entries/${entryId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/entries/${resolvedId}/entries/${entryId}?project_id=${projectId}`);
+    } else {
+      router.push(`/content-management/${resolvedId}/entries/${entryId}`);
+    }
   };
 
   const handleEdit = (entryId: number) => {
     if (!resolvedId) return;
-    router.push(`/content-management/${resolvedId}/entries/${entryId}?mode=edit`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/entries/${resolvedId}/entries/${entryId}?project_id=${projectId}&mode=edit`);
+    } else {
+      router.push(`/content-management/${resolvedId}/entries/${entryId}?mode=edit`);
+    }
   };
 
   const handleDelete = async (entry: ContentEntry) => {
-    if (!can("ContentEntry", "delete")) { alert("no permission"); return; }
+    if (!(can("ContentEntry", "delete") || (!!projectId && canProjectDelete))) { alert("no permission"); return; }
     if (entry.status === "published") {
       alert("Cannot delete published entries. Please unpublish first.");
       return;
@@ -144,6 +183,21 @@ export default function ContentEntriesPage() {
       refetch();
     }
   };
+
+  // Permission: allow create if global can() OR user has sufficient project role
+  const canProjectCreate = useMemo(() => {
+    const rn = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+    return rn === "projectadmin" || rn === "projecteditor" || rn === "projectcontentwriter";
+  }, [projectRoleName]);
+  const canCreate = can("ContentEntry", "create") || (!!projectId && canProjectCreate);
+  const canProjectUpdate = useMemo(() => {
+    const rn = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+    return rn === "projectadmin" || rn === "projecteditor" || rn === "projectcontentwriter";
+  }, [projectRoleName]);
+  const canProjectDelete = useMemo(() => {
+    const rn = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+    return rn === "projectadmin";
+  }, [projectRoleName]);
 
   // Quick workflow actions
   const handleStatusChange = async (entry: ContentEntry, to: "in_review" | "ready_for_approval" | "approved" | "published" | "rejected" | "draft") => {
@@ -230,9 +284,27 @@ export default function ContentEntriesPage() {
               </p>
           </div>
         </div>
-        {can("ContentEntry", "create") && (
-          <Link href={`/content-management/${resolvedId}/create`}>
-            <Button onClick={() => router.push(`/content-management/${resolvedId}/create`)} className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2">
+        {canCreate && (
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/entries/${resolvedId}/create`
+                : `/content-management/${resolvedId}/create`
+            }
+          >
+            <Button
+              onClick={(e) => {
+                // Optional: prevent default if you want to rely solely on router.push or vice versa.
+                // But keeping it consistent with original behavior (Link + Button onClick).
+                e.preventDefault(); 
+                if (projectId) {
+                  router.push(`/organizational/${projectId}/workspace/entries/${resolvedId}/create`);
+                } else {
+                  router.push(`/content-management/${resolvedId}/create`);
+                }
+              }}
+              className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer flex items-center gap-2"
+            >
               <Plus className="w-4 h-4" />
               Create Entry
             </Button>
@@ -474,7 +546,7 @@ export default function ContentEntriesPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {can("ContentEntry", "update") && (
+                        {(can("ContentEntry", "update") || (!!projectId && canProjectUpdate)) && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -485,7 +557,7 @@ export default function ContentEntriesPage() {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         )}
-                        {can("ContentEntry", "delete") && (
+                        {(can("ContentEntry", "delete") || (!!projectId && canProjectDelete)) && (
                           <Button
                             variant="ghost"
                             size="icon"

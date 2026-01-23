@@ -11,14 +11,14 @@ import { contentService } from "@/lib/services/content-service";
 import { SEOPreviewCard } from "./seo-preview-card";
 import { SEOPreviewSocial } from "./seo-preview-social";
 import { SEOPreviewMetadata } from "./seo-preview-metadata";
-import type { ContentEntry } from "@/types/backend-models";
-import type { ContentType } from "@/types/backend-models";
+import { useSearchParams } from "next/navigation";
+import { projectService } from "@/lib/services/project-service";
+import { useAuth } from "@/hooks/use-auth";
 
 type TabType = "google" | "facebook" | "twitter" | "linkedin" | "metadata";
 
 export function SEOPreviewModal({
   entryId,
-  contentTypeId,
   entry: entryProp,
   contentType: contentTypeProp,
   isOpen,
@@ -26,8 +26,9 @@ export function SEOPreviewModal({
 }: SEOPreviewProps) {
   const [activeTab, setActiveTab] = useState<TabType>("google");
   const [seoData, setSeoData] = useState<SEOPreviewData>({});
-  const [entry, setEntry] = useState(entryProp);
-  const [contentType, setContentType] = useState(contentTypeProp);
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   useEffect(() => {
     if (!isOpen || !entryId) return;
@@ -36,13 +37,32 @@ export function SEOPreviewModal({
         const apiData = await contentService.seoPreview(entryId);
         setSeoData(apiData as SEOPreviewData);
       } catch {
-        const currentEntry = entryProp || entry;
-        const preview = currentEntry ? generateSEOPreview(currentEntry, contentTypeProp || contentType) : {};
+        const currentEntry = entryProp;
+        const preview = currentEntry ? generateSEOPreview(currentEntry, contentTypeProp) : {};
         setSeoData(preview);
       }
     };
     doLoad();
   }, [isOpen, entryId, entryProp, contentTypeProp]);
+
+  useEffect(() => {
+    let active = true;
+    const pidStr = searchParams.get("project_id");
+    const pid = pidStr ? Number(pidStr) : undefined;
+    const fetchRole = async () => {
+      if (!pid || !user?.id) { setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(pid);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [searchParams, user?.id]);
 
   if (!isOpen) return null;
 
@@ -179,16 +199,21 @@ export function SEOPreviewModal({
           >
             Close
           </Button>
-          <Button
-            onClick={() => {
-              // In real app, this would navigate to edit page with SEO tab active
-              console.log("Edit SEO fields");
-              onClose();
-            }}
-            className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[140px] !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer"
-          >
-            Edit SEO Fields
-          </Button>
+          {(() => {
+            const key = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+            const canEditSEO = key === "projectadmin";
+            return canEditSEO ? (
+              <Button
+                onClick={() => {
+                  console.log("Edit SEO fields");
+                  onClose();
+                }}
+                className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !min-w-[140px] !bg-[var(--primary)] hover:!bg-[var(--primary-hover)] active:!bg-[color-mix(in srgb, var(--primary) 90%, black)] !text-white !border-[var(--primary)] hover:!border-[var(--primary-hover)] !cursor-pointer"
+              >
+                Edit SEO Fields
+              </Button>
+            ) : null;
+          })()}
         </div>
       </Card>
     </div>

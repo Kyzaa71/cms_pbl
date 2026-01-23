@@ -4,7 +4,7 @@ import { contentService, CreateContentTypePayload, UpdateContentTypePayload, Add
 import { workflowService } from "@/lib/services/workflow-service";
 import { ContentType, ContentField, ContentEntry } from "@/types/backend-models";
 
-export function useContentTypes() {
+export function useContentTypes(projectId?: number) {
   const [data, setData] = useState<ContentType[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +13,7 @@ export function useContentTypes() {
     setLoading(true);
     setError(null);
     try {
-      const cts = await contentService.listContentTypes();
+      const cts = await contentService.listContentTypes(projectId);
       setData(cts);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -21,14 +21,14 @@ export function useContentTypes() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => { refetch(); }, [refetch]);
 
   return { data, loading, error, refetch };
 }
 
-export function useContentType(id: number) {
+export function useContentType(id: number, projectId?: number) {
   const [data, setData] = useState<ContentType | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export function useContentType(id: number) {
     setLoading(true);
     setError(null);
     try {
-      const ct = await contentService.getContentType(id);
+      const ct = await contentService.getContentType(id, projectId);
       setData(ct);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -45,14 +45,14 @@ export function useContentType(id: number) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, projectId]);
 
-  useEffect(() => { if (id) refetch(); }, [id, refetch]);
+  useEffect(() => { if (id) refetch(); }, [id, projectId, refetch]);
 
   return { data, loading, error, refetch };
 }
 
-export function useEntries(contentTypeId: number, params?: { page?: number; limit?: number; status?: string }) {
+export function useEntries(contentTypeId: number, params?: { page?: number; limit?: number; status?: string; project_id?: number }) {
   const [data, setData] = useState<ContentEntry[]>([]);
   const [meta, setMeta] = useState<{ page?: number; limit?: number; total?: number; total_pages?: number }>({});
   const [loading, setLoading] = useState<boolean>(false);
@@ -66,7 +66,7 @@ export function useEntries(contentTypeId: number, params?: { page?: number; limi
       let list = res.entries;
       const m = res.meta;
       if (!list || list.length === 0) {
-        const wf = await workflowService.entriesByStatus(contentTypeId, params?.status);
+        const wf = await workflowService.entriesByStatus(contentTypeId, params?.status, params?.project_id);
         list = wf || [];
       }
       setData(list);
@@ -74,7 +74,7 @@ export function useEntries(contentTypeId: number, params?: { page?: number; limi
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       try {
-        const wf = await workflowService.entriesByStatus(contentTypeId, params?.status);
+        const wf = await workflowService.entriesByStatus(contentTypeId, params?.status, params?.project_id);
         setData(wf || []);
         setMeta({});
         setError(null);
@@ -95,9 +95,9 @@ export const contentActions = {
   createContentType: (payload: CreateContentTypePayload) => contentService.createContentType(payload),
   updateContentType: (id: number, payload: UpdateContentTypePayload) => contentService.updateContentType(id, payload),
   deleteContentType: (id: number) => contentService.deleteContentType(id),
-  addField: (contentTypeId: number, payload: AddFieldPayload) => contentService.addField(contentTypeId, payload),
-  updateField: (fieldId: number, payload: Partial<AddFieldPayload>) => contentService.updateField(fieldId, payload),
-  deleteField: (fieldId: number) => contentService.deleteField(fieldId),
+  addField: (contentTypeId: number, payload: AddFieldPayload, projectId?: number) => contentService.addField(contentTypeId, payload, projectId),
+  updateField: (contentTypeId: number, fieldId: number, payload: Partial<AddFieldPayload>, projectId?: number) => contentService.updateField(fieldId, payload, contentTypeId, projectId),
+  deleteField: (contentTypeId: number, fieldId: number, projectId?: number) => contentService.deleteField(fieldId, contentTypeId, projectId),
   createEntry: (contentTypeId: number, payload: { data: Record<string, unknown> }) => contentService.createEntry(contentTypeId, payload),
   updateEntry: (entryId: number, data: Record<string, unknown>) => contentService.updateEntry(entryId, data),
   deleteEntry: (entryId: number) => contentService.deleteEntry(entryId),

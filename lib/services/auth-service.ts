@@ -44,12 +44,18 @@ export const authService = {
   async login(email: string, password: string) {
     const data = await api.post<LoginResponse>("/auth/login", { email, password });
     api.setToken(data.access_token);
+    if (typeof document !== "undefined") {
+      try { localStorage.setItem("refresh_token", data.refresh_token); } catch {}
+    }
     return data;
   },
 
   async signup(name: string, email: string, password: string) {
     const data = await api.post<RegisterResponse>("/auth/register", { name, email, password });
     api.setToken(data.access_token);
+    if (typeof document !== "undefined") {
+      try { localStorage.setItem("refresh_token", data.refresh_token); } catch {}
+    }
     return data;
   },
 
@@ -65,37 +71,26 @@ export const authService = {
     const access = api.getToken();
     if (!access) return null as unknown as User;
 
-    const payload = parsePayload(access);
-    const sub = typeof payload?.sub === "number" ? payload!.sub! : null;
-    const exp = typeof payload?.exp === "number" ? payload!.exp! : null;
-
-    if (sub && exp && exp * 1000 - Date.now() > 60_000) {
-      try {
-        const u = await userService.getById(sub);
-        return u as User;
-      } catch {}
-    }
-
-    const refresh = typeof document !== "undefined" ? localStorage.getItem("refresh_token") : null;
-    if (!refresh || !sub) return null as unknown as User;
-
-    if (!refreshing) {
-      refreshing = api
-        .post<RefreshResponse>("/auth/refresh", { user_id: sub, refresh_token: refresh })
-        .finally(() => {
-          refreshing = null;
-        });
-    }
-
     try {
-      const data = await refreshing;
-      api.setToken(data.access_token);
-      if (typeof document !== "undefined") localStorage.setItem("refresh_token", data.refresh_token);
-      return data.user;
+      const u = await api.get<User>("/auth/me");
+      return u as User;
     } catch {
-      await new Promise((r) => setTimeout(r, 500));
+      // Fallback: try refresh token flow if available
+      const payload = parsePayload(access);
+      const sub = typeof payload?.sub === "number" ? payload!.sub! : null;
+      const refresh = typeof document !== "undefined" ? localStorage.getItem("refresh_token") : null;
+      if (!refresh || !sub) return null as unknown as User;
+
+      if (!refreshing) {
+        refreshing = api
+          .post<RefreshResponse>("/auth/refresh", { user_id: sub, refresh_token: refresh })
+          .finally(() => {
+            refreshing = null;
+          });
+      }
+
       try {
-        const data = await api.post<RefreshResponse>("/auth/refresh", { user_id: sub, refresh_token: refresh });
+        const data = await refreshing;
         api.setToken(data.access_token);
         if (typeof document !== "undefined") localStorage.setItem("refresh_token", data.refresh_token);
         return data.user;

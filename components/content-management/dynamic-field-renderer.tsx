@@ -11,6 +11,7 @@ import { Upload, X, Image as ImageIcon } from "lucide-react";
 import type { ContentField } from "@/components/content-builder/types";
 import { MediaSelectorModal } from "./media-selector-modal";
 import { MediaFile } from "@/components/media-assets/types";
+import { getBaseUrl } from "@/lib/api-client";
 
 interface DynamicFieldRendererProps {
   field: ContentField;
@@ -48,6 +49,18 @@ export function DynamicFieldRenderer({
 
   const mediaValue = getMediaValue();
   const hasMedia = mediaValue && (mediaValue.id || mediaValue.url);
+  const BASE_URL = getBaseUrl();
+  const normalizeUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const cleaned = url.trim().replace(/[\\]+/g, "/");
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned;
+    if (cleaned.startsWith("/")) return `${BASE_URL}${cleaned}`;
+    return `${BASE_URL}/${cleaned}`;
+  };
+  const proxiedUrl = (url?: string): string | null => {
+    const u = normalizeUrl(url);
+    return u ? `/api/media-proxy?url=${encodeURIComponent(u)}` : null;
+  };
 
   const renderField = () => {
     switch (field.type) {
@@ -132,10 +145,13 @@ export function DynamicFieldRenderer({
               <div className="space-y-2">
                 {/* Media Preview */}
                 <div className="flex items-center gap-3 p-3 bg-[var(--card-bg-inner)] rounded-lg border border-[var(--border)]">
-                  {mediaValue.url && typeof mediaValue.url === "string" && mediaValue.url.startsWith("http") ? (
+                  {(() => {
+                    const preview = proxiedUrl(mediaValue.url);
+                    if (preview) {
+                      return (
                     <div className="w-16 h-16 rounded overflow-hidden bg-[var(--card-bg)] border border-[var(--border)] flex-shrink-0">
                       <img
-                        src={mediaValue.url}
+                        src={preview}
                         alt="Selected media"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -143,11 +159,14 @@ export function DynamicFieldRenderer({
                         }}
                       />
                     </div>
-                  ) : (
+                      );
+                    }
+                    return (
                     <div className="w-16 h-16 rounded bg-[var(--card-bg)] border border-[var(--border)] flex items-center justify-center flex-shrink-0">
                       <ImageIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
                     </div>
-                  )}
+                    );
+                  })()}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[var(--foreground)] truncate">
                       {mediaValue.id ? `Media ID: ${mediaValue.id}` : "Media selected"}

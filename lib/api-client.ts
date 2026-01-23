@@ -32,6 +32,32 @@ export function getBaseUrl(): string {
   return BASE_URL;
 }
 
+function getCsrfToken(): string | null {
+  if (typeof document !== "undefined") {
+    try {
+      const ls = localStorage.getItem("csrf_token");
+      if (ls) return ls;
+    } catch {}
+  }
+  return null;
+}
+
+async function ensureCsrfToken(): Promise<string | null> {
+  const existing = getCsrfToken();
+  if (existing) return existing;
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch(`${BASE_URL}/csrf-token`, { method: "GET", mode: "cors", credentials: "include" });
+    const json = await res.json().catch(() => ({}));
+    const token = json?.csrf_token;
+    if (typeof token === "string" && token.length > 0) {
+      try { localStorage.setItem("csrf_token", token); } catch {}
+      return token;
+    }
+  } catch {}
+  return null;
+}
+
 function getToken(): string | null {
   if (typeof document !== "undefined") {
     const match = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
@@ -71,12 +97,66 @@ export async function request<T>(path: string, init: RequestInit & { retry?: num
     ...(init.headers as Record<string, string> | undefined),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  const method = (init.method || "GET").toUpperCase();
+  if (method !== "GET") {
+    const csrf = await ensureCsrfToken();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
 
   for (let attempt = 0; attempt < retry; attempt++) {
     try {
-      const res = await fetch(url, { ...init, headers, mode: "cors" });
+      const res = await fetch(url, { ...init, headers, mode: "cors", credentials: "include" });
 
       if (res.status === 401) {
+        // Try silent refresh using refresh_token before redirecting
+        try {
+          const refresh = typeof document !== "undefined" ? localStorage.getItem("refresh_token") : null;
+          const payloadRaw = token || "";
+          let sub: number | null = null;
+          try {
+            const part = (payloadRaw.split(".")[1] || "");
+            const raw = typeof window !== "undefined" ? atob(part) : Buffer.from(part, "base64").toString();
+            const json = JSON.parse(raw);
+            const subVal = json?.sub;
+            sub = typeof subVal === "number" ? subVal : (typeof subVal === "string" ? parseInt(subVal, 10) : null);
+          } catch {}
+
+          if (refresh && sub) {
+            const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              mode: "cors",
+              credentials: "include",
+              body: JSON.stringify({ user_id: sub, refresh_token: refresh }),
+            });
+            const refreshBody = await refreshRes.json().catch(() => ({}));
+            if (refreshRes.ok && refreshBody?.success !== false) {
+              const newAccess = refreshBody?.data?.access_token || refreshBody?.access_token;
+              const newRefresh = refreshBody?.data?.refresh_token || refreshBody?.refresh_token;
+              if (typeof newAccess === "string" && newAccess.length > 0) {
+                setToken(newAccess);
+                if (typeof newRefresh === "string" && newRefresh.length > 0) {
+                  try { localStorage.setItem("refresh_token", newRefresh); } catch {}
+                }
+                // Retry original request once with updated token
+                headers["Authorization"] = `Bearer ${newAccess}`;
+                const retryRes = await fetch(url, { ...init, headers, mode: "cors", credentials: "include" });
+                const retryBody = await parseResponse<T>(retryRes);
+                if (!retryRes.ok || retryBody.success === false) {
+                  let msg = retryBody.error?.message || retryBody.message || retryRes.statusText;
+                  if (retryRes.status === 403) msg = "No permission";
+                  if (retryRes.status === 429) msg = "Too Many Requests";
+                  const errObj = new Error(msg) as Error & { code?: string; details?: unknown; status?: number };
+                  errObj.code = retryBody.error?.code || String(retryRes.status);
+                  errObj.details = retryBody.error?.details;
+                  errObj.status = retryRes.status;
+                  throw errObj;
+                }
+                return retryBody.data as T;
+              }
+            }
+          }
+        } catch {}
         setToken(null);
         if (typeof window !== "undefined") window.location.href = "/auth/login";
         throw new Error("Unauthorized");
@@ -92,17 +172,17 @@ export async function request<T>(path: string, init: RequestInit & { retry?: num
         let msg = body.error?.message || body.message || res.statusText;
         if (res.status === 403) msg = "No permission";
         if (res.status === 429) msg = "Too Many Requests";
-        const err = new Error(msg);
-        (err as any).code = body.error?.code || String(res.status);
-        throw err;
+        const errObj = new Error(msg) as Error & { code?: string; details?: unknown; status?: number };
+        errObj.code = body.error?.code || String(res.status);
+        errObj.details = body.error?.details;
+        errObj.status = res.status;
+        throw errObj;
       }
 
-      return (body.data as T) ?? (body as unknown as T);
+      return body.data as T;
     } catch (e) {
       if (e instanceof TypeError) {
-        const err = new Error("Network error: failed to reach API server. Check API URL or device connectivity.");
-        (err as any).cause = e;
-        throw err;
+        throw new Error("Network error: failed to reach API server. Check API URL or device connectivity.", { cause: e });
       }
       if (attempt < retry - 1) {
         await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
@@ -123,3 +203,27 @@ export const api = {
   setToken,
   getToken,
 };
+
+type GraphQLResponse<T> = { data?: T; errors?: Array<{ message?: string }> };
+
+export async function graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  const url = `${BASE_URL}/graphql`;
+  const token = getToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const csrf = await ensureCsrfToken();
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    mode: "cors",
+    credentials: "include",
+    body: JSON.stringify({ query, variables }),
+  });
+  const body = (await res.json().catch(() => ({}))) as GraphQLResponse<T>;
+  if (!res.ok || Array.isArray(body.errors)) {
+    const msg = body.errors?.[0]?.message || res.statusText;
+    throw new Error(msg);
+  }
+  return body.data as T;
+}

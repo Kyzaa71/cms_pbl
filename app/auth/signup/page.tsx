@@ -15,6 +15,7 @@ export default function SignupPage() {
   const [agree, setAgree] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string; confirmPassword?: string; general?: string }>({});
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -30,9 +31,25 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setErrors({});
     try {
       await signup(formData.fullName, formData.email, formData.password);
       window.location.href = "/";
+    } catch (err) {
+      const anyErr = err as Error & { details?: unknown; status?: number };
+      const details = anyErr?.details;
+      const status = anyErr?.status;
+      if (status === 422 && details && typeof details === "object") {
+        const d = details as Record<string, string | undefined>;
+        setErrors({
+          name: d.name,
+          email: d.email,
+          password: d.password,
+          general: undefined,
+        });
+      } else {
+        setErrors({ general: anyErr?.message || "Registration failed" });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -93,12 +110,13 @@ export default function SignupPage() {
                 value={formData.fullName}
                 onChange={(e) => handleInputChange("fullName", e.target.value)}
                 required
-                className="auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12"
+                className={`auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12 ${errors.name ? "border-red-500 focus:border-red-500" : ""}`}
               />
               <div className="absolute inset-y-0 left-0 flex items-center pl-3">
                 <User className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors duration-300" />
               </div>
             </div>
+            {errors.name && <p className="text-sm text-red-600 mt-1">{errors.name}</p>}
           </div>
 
           <div className="space-y-2">
@@ -112,12 +130,13 @@ export default function SignupPage() {
                 value={formData.email}
                 onChange={(e) => handleInputChange("email", e.target.value)}
                 required
-                className="auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12"
+                className={`auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12 ${errors.email ? "border-red-500 focus:border-red-500" : ""}`}
               />
               <div className="absolute inset-y-0 left-0 flex items-center pl-3">
                 <Mail className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors duration-300" />
               </div>
             </div>
+            {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email}</p>}
           </div>
 
           <div className="space-y-2">
@@ -131,7 +150,7 @@ export default function SignupPage() {
                 value={formData.password}
                 onChange={(e) => handleInputChange("password", e.target.value)}
                 required
-                className="auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12 pr-12"
+                className={`auth-input h-12 text-base border-2 rounded-xl transition-all duration-300 group-hover:border-gray-300 dark:group-hover:border-gray-500 pl-12 pr-12 ${errors.password ? "border-red-500 focus:border-red-500" : ""}`}
               />
               <div className="absolute inset-y-0 left-0 flex items-center pl-3">
                 <Lock className="w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors duration-300" />
@@ -144,6 +163,7 @@ export default function SignupPage() {
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+            {errors.password && <p className="text-sm text-red-600 mt-1">{errors.password}</p>}
           </div>
 
           <div className="space-y-2">
@@ -193,6 +213,12 @@ export default function SignupPage() {
               </div>
             )}
           </div>
+
+          {errors.general && (
+            <div className="text-sm text-red-600">
+              {errors.general}
+            </div>
+          )}
 
           <div className="flex items-start space-x-3">
             <input

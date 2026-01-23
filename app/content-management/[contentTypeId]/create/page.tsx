@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,7 +15,9 @@ import type { WorkflowStatus } from "@/components/content-management/types";
 export default function CreateEntryPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const rawParam = params.contentTypeId as string;
+  const projectId = searchParams.get("project_id");
   const { data: allCTs } = useContentTypes();
   const [resolvedId, setResolvedId] = useState<number | null>(null);
 
@@ -39,7 +41,11 @@ export default function CreateEntryPage() {
     try {
       if (!resolvedId) throw new Error("Content type not found");
       await contentService.createEntry(resolvedId, data);
-      router.push(`/content-management/${resolvedId}`);
+      if (projectId) {
+        router.push(`/organizational/${projectId}/workspace/entries/${resolvedId}?project_id=${projectId}`);
+      } else {
+        router.push(`/content-management/${resolvedId}`);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg || "Failed to create entry");
@@ -51,7 +57,11 @@ export default function CreateEntryPage() {
       router.push(`/content-management`);
       return;
     }
-    router.push(`/content-management/${resolvedId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/entries/${resolvedId}?project_id=${projectId}`);
+    } else {
+      router.push(`/content-management/${resolvedId}`);
+    }
   };
 
   if (resolvedId === null) {
@@ -92,7 +102,13 @@ export default function CreateEntryPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Link href={`/content-management/${resolvedId}`}>
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/entries/${resolvedId}?project_id=${projectId}`
+                  : `/content-management/${resolvedId}`
+              }
+            >
               <Button variant="ghost" size="sm" className="p-2">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
@@ -106,7 +122,13 @@ export default function CreateEntryPage() {
               </p>
             </div>
           </div>
-          <Link href={`/content-management/${resolvedId}`}>
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/entries/${resolvedId}?project_id=${projectId}`
+                : `/content-management/${resolvedId}`
+            }
+          >
             <button className="p-2 rounded hover:bg-[var(--hover)] transition-colors">
               <X className="w-5 h-5 text-[var(--muted-foreground)]" />
             </button>
@@ -143,7 +165,15 @@ export default function CreateEntryPage() {
               >
                 Add Default Fields
               </Button>
-              <Button type="button" variant="outline" onClick={() => router.push(`/content-builder/${resolvedId}`)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  projectId
+                    ? router.push(`/organizational/${projectId}/workspace/content-builder/${resolvedId}?project_id=${projectId}`)
+                    : router.push(`/content-builder/${resolvedId}`)
+                }
+              >
                 Manage in Content Builder
               </Button>
             </div>

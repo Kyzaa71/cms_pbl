@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Loader } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, usePathname } from "next/navigation";
 import { contentService } from "@/lib/services/content-service";
 import { mediaService } from "@/lib/services/media-service";
 import { ContentType, ContentField } from "@/types/backend-models";
@@ -24,6 +24,22 @@ import { ContentType, ContentField } from "@/types/backend-models";
  */
 export default function ContentManagementForm() {
   const { id } = useParams();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const projectIdFromQuery = (() => {
+    const raw = searchParams.get("project_id");
+    const v = raw ? Number(raw) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : undefined;
+  })();
+  const projectIdFromPath = (() => {
+    const m = pathname.match(/\/organizational\/(\d+)\/workspace/i);
+    if (m && m[1]) {
+      const v = Number(m[1]);
+      return Number.isFinite(v) && v > 0 ? v : undefined;
+    }
+    return undefined;
+  })();
+  const projectId = projectIdFromQuery ?? projectIdFromPath;
   const [contentType, setContentType] = useState<ContentType | null>(null);
   const [fields, setFields] = useState<ContentField[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,8 +78,9 @@ export default function ContentManagementForm() {
         }
       });
       setFormData(initialData);
-    } catch (err: any) {
-      setError(err.message || "Failed to load content type");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to load content type";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -76,13 +93,14 @@ export default function ContentManagementForm() {
   const handleMediaUpload = async (fieldName: string, file: File) => {
     setUploadingMedias((prev) => ({ ...prev, [fieldName]: true }));
     try {
-      const uploaded = await mediaService.upload(file);
+      const uploaded = await mediaService.upload(file, projectId ? { project_id: projectId } : {});
       setFormData((prev) => ({
         ...prev,
         [`${fieldName}_media_id`]: uploaded.id,
       }));
-    } catch (err: any) {
-      setError(`Media upload failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Media upload failed: ${msg}`);
     } finally {
       setUploadingMedias((prev) => ({ ...prev, [fieldName]: false }));
     }
@@ -120,8 +138,9 @@ export default function ContentManagementForm() {
       setFormData(initialData);
 
       setTimeout(() => setShowSuccess(false), 3000);
-    } catch (err: any) {
-      setError(err.message || "Failed to create entry");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create entry";
+      setError(msg);
     } finally {
       setSubmitting(false);
     }

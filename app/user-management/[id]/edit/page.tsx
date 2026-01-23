@@ -19,7 +19,7 @@ export default function EditUserPage() {
     const load = async () => {
       if (!userId) return;
       try {
-        const [u, r] = await Promise.all([userService.getById(userId), roleService.list()]);
+        const [u, r] = await Promise.all([userService.getById(userId), roleService.listGlobal()]);
         const mapped: UIUser = {
           id: u.id,
           name: u.name,
@@ -38,10 +38,18 @@ export default function EditUserPage() {
     load();
   }, [userId]);
 
-  const handleSave = (userData: Partial<UIUser>) => {
+  const handleSave = (userData: Partial<UIUser> & { password?: string }) => {
     if (!userId) return;
+    const payload: { name?: string; email?: string; role_id?: number; password?: string } = {
+      name: userData.name,
+      email: userData.email,
+      role_id: userData.roleId,
+    };
+    if (userData.password) {
+      payload.password = userData.password;
+    }
     userService
-      .update(userId, { name: userData.name, email: userData.email, role_id: userData.roleId })
+      .update(userId, payload)
       .then(() => router.push(`/user-management/${userId}`))
       .catch((e) => alert(e?.message || "Failed to update user"));
   };

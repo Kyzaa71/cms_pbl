@@ -14,7 +14,9 @@ import { contentService } from "@/lib/services/content-service";
 export default function ContentManagementPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: serverContentTypes } = useContentTypes();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const { data: serverContentTypes } = useContentTypes(projectId);
   const [contentTypes, setContentTypes] = useState<ContentType[]>([]);
   const [entriesCountByCT, setEntriesCountByCT] = useState<Record<number, number>>({});
   useEffect(() => { if (serverContentTypes) setContentTypes(serverContentTypes); }, [serverContentTypes]);
@@ -24,7 +26,11 @@ export default function ContentManagementPage() {
   useEffect(() => {
     const typeParam = searchParams.get("type");
     if (typeParam) {
-      router.push(`/content-management/${typeParam}`);
+      if (projectId) {
+        router.push(`/organizational/${projectId}/workspace/entries/${typeParam}?project_id=${projectId}`);
+      } else {
+        router.push(`/content-management/${typeParam}`);
+      }
     }
   }, [searchParams, router]);
 
@@ -53,14 +59,14 @@ export default function ContentManagementPage() {
           }
         } catch {}
         try {
-          const wf = await workflowService.entriesByStatus(ct.id).catch(() => []);
+          const wf = await workflowService.entriesByStatus(ct.id, undefined, projectId).catch(() => []);
           if (Array.isArray(wf)) {
             map[ct.id] = wf.length;
             continue;
           }
         } catch {}
         try {
-          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100 });
+          const res = await contentService.listEntries(ct.id, { page: 1, limit: 100, project_id: projectId });
           map[ct.id] = Array.isArray(res.entries) ? res.entries.length : 0;
         } catch {
           map[ct.id] = 0;
@@ -77,7 +83,11 @@ export default function ContentManagementPage() {
   }, [filteredIdsKey]);
 
   const handleSelectContentType = (contentTypeId: number) => {
-    router.push(`/content-management/${contentTypeId}`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/entries/${contentTypeId}?project_id=${projectId}`);
+    } else {
+      router.push(`/content-management/${contentTypeId}`);
+    }
   };
 
   return (
@@ -92,12 +102,12 @@ export default function ContentManagementPage() {
             Select a content type to manage its entries
           </p>
         </div>
-        <Link href="/content-builder">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-[var(--card-bg-inner)] border border-[var(--border)] hover:bg-[var(--hover)] transition-colors text-sm font-medium text-[var(--foreground)]">
-            <Layers className="w-4 h-4" />
-            Content Builder
-          </button>
-        </Link>
+            <Link href={projectId ? `/organizational/${projectId}/workspace/content-builder?project_id=${projectId}` : "/content-builder"}>
+              <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-[var(--card-bg-inner)] border border-[var(--border)] hover:bg-[var(--hover)] transition-colors text-sm font-medium text-[var(--foreground)]">
+                <Layers className="w-4 h-4" />
+                Content Builder
+              </button>
+            </Link>
       </div>
 
       {/* Search */}
@@ -118,7 +128,10 @@ export default function ContentManagementPage() {
         <Card className="p-12 text-center border border-[var(--border)] bg-[var(--card-bg-inner)]">
           <p className="text-[var(--muted-foreground)]">
             No content types found. Create your first content type in{" "}
-            <Link href="/content-builder" className="text-[var(--primary)] hover:underline">
+            <Link
+              href={projectId ? `/organizational/${projectId}/workspace/content-builder?project_id=${projectId}` : "/content-builder"}
+              className="text-[var(--primary)] hover:underline"
+            >
               Content Builder
             </Link>
             .

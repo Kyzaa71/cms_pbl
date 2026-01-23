@@ -6,37 +6,97 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft } from "lucide-react";
+// import { ArrowLeft } from "lucide-react";
 import { getStatusBadgeColor, getStatusLabel, type WorkflowStatus } from "@/components/content-management/types";
 import { useContentType } from "@/hooks/use-content";
 import { contentService } from "@/lib/services/content-service";
 import { DynamicFieldRenderer } from "./dynamic-field-renderer";
 import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api-client";
+import { projectService } from "@/lib/services/project-service";
+import type { ContentType as BackendContentType, ContentField as BackendContentField, ContentEntry as BackendContentEntry, Permission } from "@/types/backend-models";
 
 interface EntryFormProps {
   contentTypeId: number;
   entryId?: number;
-  onSubmit: (data: Record<string, any>, status: WorkflowStatus) => void;
+  projectId?: number;
+  onSubmit: (data: Record<string, unknown>, status: WorkflowStatus) => void;
   onCancel: () => void;
 }
 
-export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryFormProps) {
-  const { data: fetchedCT } = useContentType(contentTypeId);
+export function EntryForm({ contentTypeId, entryId, projectId, onSubmit, onCancel }: EntryFormProps) {
+  const { data: fetchedCT } = useContentType(contentTypeId, projectId);
   const { user, can } = useAuth();
-  const [contentType, setContentType] = useState<any>(null);
-  const [fields, setFields] = useState<any[]>([]);
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const roleName = (() => {
+    // 1. Try from user object
+    if (user?.role?.name) return user.role.name;
+    
+    // 2. Try from token
+    const token = api.getToken();
+    if (!token) return "";
+    try {
+      const part = token.split(".")[1] || "";
+      const json = JSON.parse(atob(part));
+      
+      // Handle string role
+      if (typeof json?.role === "string") return json.role;
+      // Handle array of roles
+       const rawRoles = json?.role;
+       if (Array.isArray(rawRoles)) {
+         const roles = rawRoles.map((r) => {
+           if (typeof r === "string") return r;
+           if (r && typeof r === "object" && "name" in (r as Record<string, unknown>)) {
+             const n = (r as { name?: unknown }).name;
+             return typeof n === "string" ? n : "";
+           }
+           return "";
+         });
+         if (roles.some((r) => r.toLowerCase().replace(/[\s_-]+/g, "") === "projectadmin")) return "projectadmin";
+        return roles[0] || "";
+      }
+      // Handle object role with name
+      if (json?.role?.name && typeof json.role.name === "string") return json.role.name;
+      
+      return "";
+    } catch {
+      return "";
+    }
+  })();
+  
+  const roleKey = (roleName || "").toLowerCase().replace(/[\s_-]+/g, "").trim();
+  const [isProjectAdminMembership, setIsProjectAdminMembership] = useState<boolean>(false);
+  const isProjectAdmin = roleKey === "projectadmin" || isProjectAdminMembership;
+  const [contentType, setContentType] = useState<BackendContentType | null>(null);
+  interface EntryField {
+    id: number;
+    contentTypeId: number;
+    name: string;
+    type: string;
+    required: boolean;
+    isSeo: boolean;
+    unique: boolean;
+    maxLength?: number;
+    minLength?: number;
+    pattern?: string;
+    minValue?: number;
+    maxValue?: number;
+    defaultValue?: string;
+    placeholder?: string;
+    helpText?: string;
+  }
+  const [fields, setFields] = useState<EntryField[]>([]);
+  const [formData, setFormData] = useState<Record<string, unknown>>({});
   // Status is always "draft" for new entries, or preserved from existing entry for edits (but not editable)
-  const [status] = useState<WorkflowStatus>(entryId ? "draft" : "draft");
+  // const [status] = useState<WorkflowStatus>(entryId ? "draft" : "draft");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (fetchedCT) {
-      setContentType(fetchedCT);
+      setContentType(fetchedCT as BackendContentType);
       const merged = [
-        ...(fetchedCT.fields || []),
-        ...(fetchedCT.seo_fields || []),
-      ].map((f: any) => ({
+        ...((fetchedCT as BackendContentType).fields || []),
+        ...((fetchedCT as BackendContentType).seo_fields || []),
+      ].map((f: BackendContentField) => ({
         id: f.id,
         contentTypeId: f.content_type_id,
         name: f.name,
@@ -52,27 +112,51 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
         defaultValue: f.default_value,
         placeholder: f.placeholder,
         helpText: f.help_text,
-      }));
+      })) as EntryField[];
       setFields(merged);
-      const initialData: Record<string, any> = {};
-      merged.forEach((field: any) => {
+      const initialData: Record<string, unknown> = {};
+      merged.forEach((field: EntryField) => {
         if (field.defaultValue) initialData[field.name] = field.defaultValue;
       });
-      setFormData(initialData);
+      setFormData((prev) => (entryId ? { ...initialData, ...prev } : initialData));
     }
-  }, [fetchedCT]);
+  }, [fetchedCT, entryId]);
 
-  const [currentEntry, setCurrentEntry] = useState<any>(null);
+  const [currentEntry, setCurrentEntry] = useState<BackendContentEntry | null>(null);
   useEffect(() => {
     if (entryId) {
       contentService.getEntry(entryId).then((entry) => {
-        setCurrentEntry(entry);
-        setFormData((entry as any).data || {});
+        setCurrentEntry(entry as BackendContentEntry);
+        const d = (entry as BackendContentEntry).data;
+        const safe = d && typeof d === "object" ? (d as Record<string, unknown>) : {};
+        setFormData(safe);
       });
     }
   }, [entryId]);
 
-  const handleFieldChange = (fieldName: string, value: any) => {
+  useEffect(() => {
+    let cancelled = false;
+    async function checkProjectRole() {
+      try {
+        if (!projectId || !user?.id) return;
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const nameRaw =
+          (me?.role?.name as string | undefined) ||
+          (typeof me?.role === "string" ? (me?.role as string) : undefined);
+        const key = (nameRaw || "").toLowerCase().replace(/[\s_-]+/g, "").trim();
+        if (!cancelled) setIsProjectAdminMembership(key === "projectadmin");
+      } catch {
+        if (!cancelled) setIsProjectAdminMembership(false);
+      }
+    }
+    checkProjectRole();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, user?.id]);
+
+  const handleFieldChange = (fieldName: string, value: unknown) => {
     setFormData((prev) => ({
       ...prev,
       [fieldName]: value,
@@ -90,14 +174,17 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    const isEditable = (field: any): boolean => {
+    const isEditable = (field: EntryField): boolean => {
+      if (isProjectAdmin) return true;
       const action: "create" | "update" = entryId ? "update" : "create";
       if (!can("ContentEntry", action)) return false;
-      const perms = (user?.role?.permissions || []) as any[];
+      const perms: Permission[] = Array.isArray(user?.role?.permissions) ? user!.role!.permissions : [];
       const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
       const scope = (p?.field_scope as string) || "all";
-      const allowed = Array.isArray(p?.allowed_fields) ? (p.allowed_fields as string[]) : undefined;
-      const denied = Array.isArray(p?.denied_fields) ? (p.denied_fields as string[]) : undefined;
+      const allowedRaw = p?.allowed_fields;
+      const deniedRaw = p?.denied_fields;
+      const allowed = Array.isArray(allowedRaw) ? (allowedRaw as string[]) : undefined;
+      const denied = Array.isArray(deniedRaw) ? (deniedRaw as string[]) : undefined;
       if (scope === "all") return true;
       if (scope === "seo_only") return !!field.isSeo;
       if (scope === "non_seo_only") return !field.isSeo;
@@ -109,7 +196,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
       return false;
     };
 
-    fields.forEach((field) => {
+    fields.forEach((field: EntryField) => {
       const editable = isEditable(field);
       if (!editable) return;
       if (field.required && !formData[field.name]) {
@@ -121,7 +208,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
         // Validate text length (for string/text/email/url types)
         if (field.type === "string" || field.type === "text" || field.type === "email" || field.type === "url") {
-          const stringValue = String(fieldValue);
+          const stringValue = String(fieldValue as string);
           if (field.maxLength && stringValue.length > field.maxLength) {
             newErrors[field.name] = `Maximum length is ${field.maxLength} characters`;
           }
@@ -140,7 +227,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
           // Validate URL format
           if (field.type === "url" && stringValue) {
             try {
-              new URL(stringValue);
+              new URL(stringValue as string);
             } catch {
               newErrors[field.name] = "Invalid URL format";
             }
@@ -157,7 +244,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
         // Validate number range
         if (field.type === "number") {
-          const numValue = Number(fieldValue);
+          const numValue = Number(fieldValue as number);
           if (isNaN(numValue)) {
             newErrors[field.name] = "Must be a valid number";
           } else {
@@ -172,7 +259,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
         // Validate date format
         if (field.type === "date" && fieldValue) {
-          const dateValue = new Date(fieldValue);
+          const dateValue = new Date(fieldValue as string | number | Date);
           if (isNaN(dateValue.getTime())) {
             newErrors[field.name] = "Invalid date format";
           }
@@ -180,7 +267,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
         // Validate media (must have id or url)
         if (field.type === "media" && fieldValue) {
-          if (typeof fieldValue === "object" && !fieldValue.id && !fieldValue.url) {
+          if (typeof fieldValue === "object" && fieldValue !== null && !("id" in (fieldValue as Record<string, unknown>)) && !("url" in (fieldValue as Record<string, unknown>))) {
             newErrors[field.name] = "Please select a valid media file";
           }
         }
@@ -195,7 +282,7 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
     e.preventDefault();
 
     // Ensure at least one field provided
-    const hasData = Object.keys(formData).length > 0 && Object.values(formData).some((v) => v !== undefined && v !== null && String(v).length > 0);
+    const hasData = Object.keys(formData).length > 0 && Object.values(formData).some((v) => v !== undefined && v !== null && String(v as unknown as string).length > 0);
     if (!hasData) {
       alert("Please fill at least one field before creating the entry");
       return;
@@ -205,27 +292,27 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
       return;
     }
 
-    // Format media fields for backend
-    // Backend expects: {fieldName} = url, {fieldName}_media_id = id
-    const formattedData: Record<string, any> = { ...formData };
-
-    fields.forEach((field) => {
-      if (field.type === "media" && formData[field.name]) {
-        const mediaValue = formData[field.name];
-        // If media value is an object with id and url
-        if (typeof mediaValue === "object" && mediaValue !== null) {
-          formattedData[field.name] = mediaValue.url || ""; // Store URL in main field
-          formattedData[`${field.name}_media_id`] = mediaValue.id || mediaValue.media_id; // Store ID separately
-        } else if (typeof mediaValue === "number") {
-          // If only ID is provided, we need to fetch the URL (for now, store as is)
-          formattedData[`${field.name}_media_id`] = mediaValue;
-          formattedData[field.name] = ""; // URL will be fetched by backend
-        } else if (typeof mediaValue === "string") {
-          // If only URL is provided
-          formattedData[field.name] = mediaValue;
+    // Hanya kirim field yang diizinkan oleh content type
+    const formattedData: Record<string, unknown> = {};
+    fields.forEach((field: EntryField) => {
+      const val = formData[field.name];
+      if (val === undefined) return;
+      if (field.type === "media" && val) {
+        if (typeof val === "object" && val !== null) {
+          const obj = val as { url?: string; id?: number; media_id?: number };
+          formattedData[field.name] = obj.url || "";
+          formattedData[`${field.name}_media_id`] = obj.id ?? obj.media_id;
+        } else if (typeof val === "number") {
+          formattedData[`${field.name}_media_id`] = val;
+          formattedData[field.name] = "";
+        } else if (typeof val === "string") {
+          formattedData[field.name] = val;
         }
+      } else {
+        formattedData[field.name] = val;
       }
     });
+    // Buang key asing yang mungkin berasal dari entry lama
 
     // For new entries, status is always "draft"
     // For existing entries, preserve the existing status (from entryId lookup)
@@ -249,23 +336,26 @@ export function EntryForm({ contentTypeId, entryId, onSubmit, onCancel }: EntryF
 
   // Get current entry status if editing
   const currentStatus = "draft";
-  const canSubmit = entryId ? can("ContentEntry", "update") : can("ContentEntry", "create");
+  const canSubmit = isProjectAdmin ? true : (entryId ? can("ContentEntry", "update") : can("ContentEntry", "create"));
   const actionScope = (() => {
     const action: "create" | "update" = entryId ? "update" : "create";
-    const perms = (user?.role?.permissions || []) as any[];
-    const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
+    const perms: Permission[] = Array.isArray(user?.role?.permissions) ? (user!.role!.permissions as Permission[]) : [];
+    const p = perms.find((x: Permission) => x.module === "ContentEntry" && x.action === action);
     return (p?.field_scope as string) || "all";
   })();
   const hasRequiredSeo = fields.filter((f) => f.isSeo).some((f) => !!f.required);
-  const blockedBySeoRequirement = !entryId && actionScope === "non_seo_only" && hasRequiredSeo;
-  const isEditableField = (field: any): boolean => {
+  const blockedBySeoRequirement = isProjectAdmin ? false : (!entryId && actionScope === "non_seo_only" && hasRequiredSeo);
+  const isEditableField = (field: EntryField): boolean => {
+    if (isProjectAdmin) return true;
     const action: "create" | "update" = entryId ? "update" : "create";
     if (!can("ContentEntry", action)) return false;
-    const perms = (user?.role?.permissions || []) as any[];
-    const p = perms.find((x) => x.module === "ContentEntry" && x.action === action);
+    const perms: Permission[] = Array.isArray(user?.role?.permissions) ? (user!.role!.permissions as Permission[]) : [];
+    const p = perms.find((x: Permission) => x.module === "ContentEntry" && x.action === action);
     const scope = (p?.field_scope as string) || "all";
-    const allowed = Array.isArray(p?.allowed_fields) ? (p.allowed_fields as string[]) : undefined;
-    const denied = Array.isArray(p?.denied_fields) ? (p.denied_fields as string[]) : undefined;
+    const allowedRaw = p?.allowed_fields;
+    const deniedRaw = p?.denied_fields;
+    const allowed = Array.isArray(allowedRaw) ? (allowedRaw as string[]) : undefined;
+    const denied = Array.isArray(deniedRaw) ? (deniedRaw as string[]) : undefined;
     if (scope === "all") return true;
     if (scope === "seo_only") return !!field.isSeo;
     if (scope === "non_seo_only") return !field.isSeo;

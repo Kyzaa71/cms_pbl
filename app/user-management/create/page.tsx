@@ -10,7 +10,7 @@ export default function CreateUserPage() {
   const router = useRouter();
   const [roles, setRoles] = useState<UIRole[]>([]);
   useEffect(() => {
-    roleService.list().then((r) => setRoles(r.map((x) => ({ id: x.id, name: x.name, description: x.description }))));
+    roleService.listGlobal().then((r) => setRoles(r.map((x) => ({ id: x.id, name: x.name, description: x.description }))));
   }, []);
 
   const handleSave = (userData: Partial<UIUser> & { password?: string }) => {

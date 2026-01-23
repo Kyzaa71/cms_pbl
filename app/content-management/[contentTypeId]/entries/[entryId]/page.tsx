@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Modal } from "@/components/ui/modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getBaseUrl } from "@/lib/api-client";
+import { projectService } from "@/lib/services/project-service";
 
 export default function EntryDetailPage() {
   const params = useParams();
@@ -29,8 +30,10 @@ export default function EntryDetailPage() {
   const entryId = parseInt(params.entryId as string);
 
   const [entry, setEntry] = useState<ContentEntry | undefined>();
-  const { data: contentType } = useContentType(contentTypeId);
   const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const { data: contentType } = useContentType(contentTypeId, projectId);
   const initialEditing = useMemo(() => searchParams.get("mode") === "edit", [searchParams]);
   const [isEditing, setIsEditing] = useState(initialEditing);
   const [showSEOPreview, setShowSEOPreview] = useState(false);
@@ -38,7 +41,9 @@ export default function EntryDetailPage() {
   const [targetLang, setTargetLang] = useState<string>("en");
   const [mediaMap, setMediaMap] = useState<Record<number, MediaFile>>({});
   const [imgPreviewMap, setImgPreviewMap] = useState<Record<string, string>>({});
+  const [generatingPreview, setGeneratingPreview] = useState(false);
   const BASE_URL = getBaseUrl();
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
 
   const normalizeUrl = useMemo(() => {
     return (url?: string): string | null => {
@@ -60,6 +65,24 @@ export default function EntryDetailPage() {
   useEffect(() => {
     contentService.getEntry(entryId).then((e) => setEntry(e));
   }, [entryId]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchRole = async () => {
+      if (!projectId || !entryId) { setProjectRoleName(""); return; }
+      try {
+        // Find current user membership in this project
+        const members = await projectService.getProjectMembers(Number(projectId));
+        const me = members.find((m) => typeof m.user_id === "number");
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    fetchRole();
+    return () => { active = false; };
+  }, [projectId, entryId]);
 
   useEffect(() => {
     const loadMedia = async () => {
@@ -113,9 +136,32 @@ export default function EntryDetailPage() {
   }, [entry, mediaMap, normalizeUrl, imgPreviewMap]);
 
   const handleUpdate = async (data: Record<string, unknown>) => {
-    const updated = await contentService.updateEntry(entryId, data);
-    setEntry(updated);
-    setIsEditing(false);
+    try {
+      if (!contentType) {
+        throw new Error("Content type not loaded");
+      }
+      const allFields = [
+        ...((contentType as any).fields || []),
+        ...((contentType as any).seo_fields || []),
+      ];
+      const validFieldNames = new Set<string>(allFields.map((f: any) => String(f.name)));
+      const filteredData: Record<string, unknown> = {};
+      Object.entries(data).forEach(([key, value]) => {
+        if (validFieldNames.has(key) || key.endsWith("_media_id")) {
+          filteredData[key] = value;
+        }
+      });
+      if (Object.keys(filteredData).length === 0) {
+        throw new Error("No valid fields to update");
+      }
+      const updated = await contentService.updateEntry(entryId, filteredData);
+      setEntry(updated);
+      setIsEditing(false);
+      alert("Entry updated successfully");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to update entry";
+      alert(`Update failed: ${msg}`);
+    }
   };
 
   const handleCancel = () => {
@@ -127,7 +173,13 @@ export default function EntryDetailPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <p className="text-[var(--muted-foreground)]">Entry not found</p>
-          <Link href={`/content-management/${contentTypeId}`}>
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/entries/${contentTypeId}?project_id=${projectId}`
+                : `/content-management/${contentTypeId}`
+            }
+          >
             <Button variant="outline" className="mt-4">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Entries
@@ -149,7 +201,13 @@ export default function EntryDetailPage() {
       <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Link href={`/content-management/${contentTypeId}`}>
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/entries/${contentTypeId}?project_id=${projectId}`
+                  : `/content-management/${contentTypeId}`
+              }
+            >
               <Button variant="ghost" size="sm" className="p-2">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
@@ -176,12 +234,31 @@ export default function EntryDetailPage() {
                   </Button>
                 )}
                 <Button
+                  disabled={generatingPreview}
+                  onClick={async () => {
+                    try {
+                      setGeneratingPreview(true);
+                      const { token } = await contentService.previewToken(entryId);
+                      const origin = typeof window !== "undefined" ? window.location.origin : "";
+                      const target = `${origin}/preview?entry_id=${entryId}&token=${encodeURIComponent(token)}`;
+                      window.open(target, "_blank", "noopener,noreferrer");
+                    } catch (e) {
+                      alert((e as Error)?.message || "Failed to open preview");
+                    } finally {
+                      setGeneratingPreview(false);
+                    }
+                  }}
+                  className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-purple-600 hover:!bg-purple-700 active:!bg-purple-800 !text-white !border-purple-600 hover:!border-purple-700 !cursor-pointer flex items-center gap-2"
+                >
+                  {generatingPreview ? "Generating..." : "Entry Preview"}
+                </Button>
+                <Button
                   onClick={() => setShowTranslate(true)}
                   className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-blue-600 hover:!bg-blue-700 active:!bg-blue-800 !text-white !border-blue-600 hover:!border-blue-700 !cursor-pointer flex items-center gap-2"
                 >
                   Translate
                 </Button>
-                {can("ContentEntry", "update") && (
+                {(can("ContentEntry", "update") || (!!projectId && ["projectadmin","projecteditor","projectcontentwriter"].includes((projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "")))) && (
                 <Button
                   onClick={() => setIsEditing(true)}
                   className="!font-medium !transition-all !duration-200 !ease-in-out !shadow-sm hover:!shadow-md active:!scale-95 !border-2 !bg-orange-500 hover:!bg-orange-600 active:!bg-orange-700 !text-white !border-orange-500 hover:!border-orange-600 !cursor-pointer flex items-center gap-2"
@@ -200,7 +277,13 @@ export default function EntryDetailPage() {
                 )}
               </>
             )}
-            <Link href={`/content-management/${contentTypeId}`}>
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/entries/${contentTypeId}?project_id=${projectId}`
+                  : `/content-management/${contentTypeId}`
+              }
+            >
               <button className="p-2 rounded hover:bg-[var(--hover)] transition-colors">
                 <X className="w-5 h-5 text-[var(--muted-foreground)]" />
               </button>
@@ -285,6 +368,7 @@ export default function EntryDetailPage() {
           <EntryForm
             contentTypeId={contentTypeId}
             entryId={entryId}
+            projectId={projectId}
             onSubmit={handleUpdate}
             onCancel={handleCancel}
           />

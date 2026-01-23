@@ -18,7 +18,9 @@ import { formatDateTime, getInitials, WorkflowStatus } from "./types";
 import { StatusBadge } from "./status-badge";
 import { WorkflowActions } from "./workflow-actions";
 import { StatusTransitionModal } from "./status-transition-modal";
-import type { ContentEntry, WorkflowHistory, WorkflowComment } from "@/types/backend-models";
+import { AssignmentForm } from "./assignment-form";
+import { Modal } from "@/components/ui/modal";
+import type { ContentEntry, WorkflowHistory, WorkflowComment, WorkflowAssignment } from "@/types/backend-models";
 import { workflowService } from "@/lib/services/workflow-service";
 import { useAuth } from "@/hooks/use-auth";
 import { contentService } from "@/lib/services/content-service";
@@ -29,9 +31,11 @@ interface EntryDetailViewProps {
 
 export function EntryDetailView({ entry }: EntryDetailViewProps) {
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showAssignmentModal, setShowAssignmentModal] = useState(false);
   const [selectedToStatus, setSelectedToStatus] = useState<WorkflowStatus | null>(null);
   const [history, setHistory] = useState<WorkflowHistory[]>([]);
   const [comments, setComments] = useState<WorkflowComment[]>([]);
+  const [activeAssignment, setActiveAssignment] = useState<WorkflowAssignment | null>(null);
   const [contentTypeName, setContentTypeName] = useState<string>("");
   const [viewEntry, setViewEntry] = useState<ContentEntry | null>(entry);
   const { user } = useAuth();
@@ -40,6 +44,7 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
     if (viewEntry?.id) {
       workflowService.history(viewEntry.id).then(setHistory).catch(() => setHistory([]));
       workflowService.comments(viewEntry.id).then(setComments).catch(() => setComments([]));
+      workflowService.getActiveAssignment(viewEntry.id).then(setActiveAssignment).catch(() => setActiveAssignment(null));
     }
   }, [viewEntry?.id]);
 
@@ -100,11 +105,34 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
   };
 
   const requireComment = (() => {
-    const roleName = ((user?.role?.name || "") as string).toLowerCase().trim() || "viewer";
-    const from = (viewEntry?.status || "draft") as WorkflowStatus;
     const to = (selectedToStatus || "draft") as WorkflowStatus;
-    return from === "in_review" && to === "rejected" && roleName === "editor";
+    return to === "rejected";
   })();
+
+  const handleAssignmentSubmit = async (assignedTo: number, dueDate?: string, autoTransition?: boolean) => {
+    if (!viewEntry) return;
+    try {
+      const assignment = await workflowService.assign(viewEntry.id, {
+        assigned_to: assignedTo,
+        due_date: dueDate,
+        auto_transition_to_draft: autoTransition,
+      });
+      alert("Entry assigned successfully");
+      setShowAssignmentModal(false);
+      setActiveAssignment(assignment);
+      
+      // Refresh entry to reflect potential status change
+      try {
+        const updatedEntry = await contentService.getEntry(viewEntry.id);
+        setViewEntry(updatedEntry);
+      } catch (e) {
+        console.error("Failed to refresh entry:", e);
+      }
+    } catch (error) {
+      console.error("Failed to assign entry:", error);
+      alert("Failed to assign entry");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -238,21 +266,60 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-[var(--muted-foreground)]">Assignments</p>
-              <p className="text-2xl font-bold text-[var(--foreground)] mt-1">-</p>
+              {activeAssignment ? (
+               <div className="mt-1">
+                 <p className="text-sm font-medium text-[var(--foreground)]">
+                  {(() => {
+                    const user = activeAssignment.user || activeAssignment.assignee || null;
+                    const name = user?.name || "";
+                    const email = user?.email || "";
+                    if (name || email) return name || email;
+                    const id = activeAssignment.assigned_to ?? user?.id;
+                    return id ? `User #${id}` : "Unknown";
+                  })()}
+                 </p>
+                 <p className="text-xs text-[var(--muted-foreground)]">
+                   Due: {activeAssignment.due_date ? formatDateTime(activeAssignment.due_date) : "No deadline"}
+                 </p>
+               </div>
+              ) : (
+                <p className="text-2xl font-bold text-[var(--foreground)] mt-1">-</p>
+              )}
             </div>
             <UserPlus className="w-8 h-8 text-[var(--primary)] opacity-60" />
           </div>
           <Button
             variant="link"
             className="p-0 h-auto mt-2 text-[var(--primary)]"
-            onClick={() => {
-              console.log("Assign entry:", viewEntry.id);
-            }}
+            onClick={() => setShowAssignmentModal(true)}
+            disabled={!!activeAssignment || !["draft", "rejected"].includes(viewEntry.status)}
           >
-            Assign Entry →
+            {activeAssignment
+              ? "Assigned"
+              : ["draft", "rejected"].includes(viewEntry.status)
+              ? "Assign Entry →"
+              : "Assignment unavailable"}
           </Button>
         </Card>
       </div>
+
+      {/* Assignment Modal */}
+      <Modal
+        isOpen={showAssignmentModal}
+        onClose={() => setShowAssignmentModal(false)}
+        title="Assign Entry"
+      >
+        <AssignmentForm
+          entryTitle={
+            viewEntry.data && typeof viewEntry.data === 'object' && 'title' in viewEntry.data
+              ? (viewEntry.data as { title: string }).title
+              : `Entry #${viewEntry.id}`
+          }
+          entryStatus={viewEntry.status}
+          onSubmit={handleAssignmentSubmit}
+          onCancel={() => setShowAssignmentModal(false)}
+        />
+      </Modal>
 
       {/* Status Transition Modal */}
       {showStatusModal && selectedToStatus && (

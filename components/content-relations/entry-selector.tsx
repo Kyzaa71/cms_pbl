@@ -8,6 +8,7 @@ import { Search, FileText } from "lucide-react";
 import { searchService } from "@/lib/services/search-service";
 import type { ContentEntry } from "@/types/backend-models";
 import { StatusBadge } from "@/components/workflow-management/status-badge";
+import { WorkflowStatus } from "@/components/workflow-management/types";
 import { useContentTypes } from "@/hooks/use-content";
 
 interface EntrySelectorProps {
@@ -16,6 +17,7 @@ interface EntrySelectorProps {
   excludeEntryId?: number;
   placeholder?: string;
   label?: string;
+  projectId?: number;
 }
 
 export function EntrySelector({
@@ -24,6 +26,7 @@ export function EntrySelector({
   excludeEntryId,
   placeholder = "Search for content entry...",
   label = "Select Entry",
+  projectId,
 }: EntrySelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -45,7 +48,7 @@ export function EntrySelector({
       if (typeof v === "string" && v.trim().length > 0) return v as string;
     }
     // pick first string field
-    for (const [k, v] of Object.entries(d)) {
+    for (const [, v] of Object.entries(d)) {
       if (typeof v === "string" && v.trim().length > 0) return v as string;
     }
     return `Entry #${e.id}`;
@@ -72,15 +75,16 @@ export function EntrySelector({
       if (!isOpen) return;
       try {
         const q = searchQuery.trim() || "";
-        let { entries } = await searchService.fullText({ q, limit: 10, page: 1 });
+        let { entries } = await searchService.fullText({ q, limit: 10, page: 1, project_id: projectId });
         if (entries.length === 0 && q.length > 0) {
-          const fallback = await searchService.fullText({ q: "", limit: 10, page: 1 });
+          const fallback = await searchService.fullText({ q: "", limit: 10, page: 1, project_id: projectId });
           entries = fallback.entries;
         }
         if (!active) return;
         const qq = q.toLowerCase();
         const filtered = entries.filter((e) => {
           if (excludeEntryId && e.id === excludeEntryId) return false;
+          if (projectId && Number(e.project_id || 0) !== Number(projectId)) return false;
           if (!qq) return true;
           const title = titleOf(e).toLowerCase();
           const ctName = (ctNameById[e.content_type_id] || `content type #${e.content_type_id}`).toLowerCase();
@@ -121,7 +125,7 @@ export function EntrySelector({
                 <span className="text-xs text-[var(--muted-foreground)]">
                   {ctNameById[selectedEntry.content_type_id] || `Content Type #${selectedEntry.content_type_id}`}
                 </span>
-                <StatusBadge status={selectedEntry.status as any} />
+                <StatusBadge status={selectedEntry.status as WorkflowStatus} />
               </div>
             </div>
             <button
@@ -172,7 +176,7 @@ export function EntrySelector({
                     <span className="text-xs text-[var(--muted-foreground)]">
                       {ctNameById[entry.content_type_id] || `Content Type #${entry.content_type_id}`}
                     </span>
-                    <StatusBadge status={entry.status as any} />
+                    <StatusBadge status={entry.status as WorkflowStatus} />
                   </div>
                 </div>
                 <FileText className="h-4 w-4 text-[var(--muted-foreground)] ml-2" />

@@ -75,6 +75,7 @@ export interface ContentField {
 export interface ContentEntry {
   id: number;
   content_type_id: number;
+  project_id?: number | null;
   data: unknown;
   status: WorkflowStatus;
   created_by?: number;
@@ -109,6 +110,30 @@ export interface MediaFile {
   caption: string;
   uploaded_by: number;
   uploader?: User;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  description?: string;
+  created_by: number;
+  creator?: User;
+  members?: ProjectMember[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectMember {
+  id: number;
+  project_id: number;
+  user_id: number;
+  user?: User;
+  role_id: number;
+  role?: Role;
+  status: string;
+  invited_by: number;
   created_at: string;
   updated_at: string;
 }
@@ -164,6 +189,7 @@ export interface WorkflowAssignment {
   entry?: ContentEntry;
   assigned_to: number;
   user?: User;
+  assignee?: User;
   assigned_by: number;
   assigner?: User;
   status: string;

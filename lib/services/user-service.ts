@@ -11,7 +11,7 @@ export const userService = {
   async create(payload: { name: string; email: string; password: string; role_id?: number }): Promise<BackendUser> {
     return api.post<BackendUser>("/users", payload);
   },
-  async update(id: number, payload: { name?: string; email?: string; role_id?: number }): Promise<BackendUser> {
+  async update(id: number, payload: { name?: string; email?: string; role_id?: number; password?: string }): Promise<BackendUser> {
     return api.put<BackendUser>(`/users/${id}`, payload);
   },
   async remove(id: number): Promise<void> {
@@ -22,6 +22,9 @@ export const userService = {
 export const roleService = {
   async list(): Promise<BackendRole[]> {
     return api.get<BackendRole[]>("/roles");
+  },
+  async listGlobal(): Promise<BackendRole[]> {
+    return api.get<BackendRole[]>("/roles?is_global=true");
   },
   async getById(id: number): Promise<BackendRole> {
     return api.get<BackendRole>(`/roles/${id}`);

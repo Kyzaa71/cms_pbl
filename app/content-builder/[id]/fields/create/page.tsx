@@ -1,5 +1,5 @@
 "use client";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,10 @@ import type { AddFieldPayload } from "@/lib/services/content-service";
 export default function CreateFieldPage() {
   const router = useRouter();
   const params = useParams();
-  const contentTypeId = parseInt(params.id as string);
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("project_id");
+  const rawCtId = (params as any).contentTypeId ?? params.id;
+  const contentTypeId = parseInt(String(rawCtId));
 
   const handleSubmit = async (fieldData: FieldFormData) => {
     try {
@@ -46,8 +49,12 @@ export default function CreateFieldPage() {
       if (fieldData.placeholder) payload.placeholder = String(fieldData.placeholder);
       if (fieldData.helpText) payload.help_text = String(fieldData.helpText);
 
-      await contentActions.addField(contentTypeId, payload);
-      router.push(`/content-builder/${contentTypeId}?tab=fields`);
+      await contentActions.addField(contentTypeId, payload, projectId ? Number(projectId) : undefined);
+      if (projectId) {
+        router.push(`/organizational/${projectId}/workspace/content-builder/${contentTypeId}?tab=fields`);
+      } else {
+        router.push(`/content-builder/${contentTypeId}?tab=fields`);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       alert(msg || "Failed to create field");
@@ -55,7 +62,11 @@ export default function CreateFieldPage() {
   };
 
   const handleCancel = () => {
-    router.push(`/content-builder/${contentTypeId}?tab=fields`);
+    if (projectId) {
+      router.push(`/organizational/${projectId}/workspace/content-builder/${contentTypeId}?tab=fields`);
+    } else {
+      router.push(`/content-builder/${contentTypeId}?tab=fields`);
+    }
   };
 
   return (
@@ -63,7 +74,13 @@ export default function CreateFieldPage() {
       <Card className="p-6 bg-[var(--card-bg-inner)] border border-[var(--border)]">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Link href={`/content-builder/${contentTypeId}?tab=fields`}>
+            <Link
+              href={
+                projectId
+                  ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}?tab=fields`
+                  : `/content-builder/${contentTypeId}?tab=fields`
+              }
+            >
               <Button variant="ghost" size="sm" className="p-2">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
@@ -73,7 +90,13 @@ export default function CreateFieldPage() {
               <p className="text-sm text-[var(--muted-foreground)]">Step 2: Tambah field ke content type</p>
             </div>
           </div>
-          <Link href={`/content-builder/${contentTypeId}?tab=fields`}>
+          <Link
+            href={
+              projectId
+                ? `/organizational/${projectId}/workspace/content-builder/${contentTypeId}?tab=fields`
+                : `/content-builder/${contentTypeId}?tab=fields`
+            }
+          >
             <button className="p-2 rounded hover:bg-[var(--hover)] transition-colors">
               <X className="w-5 h-5 text-[var(--muted-foreground)]" />
             </button>

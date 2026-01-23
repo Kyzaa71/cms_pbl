@@ -8,6 +8,7 @@ export interface FullTextParams {
   q: string;
   page?: number;
   limit?: number;
+  project_id?: number;
 }
 
 export interface AdvancedParams {
@@ -42,6 +43,7 @@ export const searchService = {
     query.append("q", params.q);
     if (params.page) query.append("page", String(params.page));
     if (params.limit) query.append("limit", String(params.limit));
+    if (params.project_id) query.append("project_id", String(params.project_id));
 
     const res = await fetch(`${getBaseUrl()}/search/entries?${query.toString()}`, {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${api.getToken() ?? ""}` },
@@ -79,7 +81,7 @@ export const searchService = {
     if (!res.ok || body.success === false) {
       throw new Error(body.error?.message || body.message || res.statusText);
     }
-    return (body.data as FacetsResponse) || { content_types: {}, statuses: {} as any };
+    return (body.data as FacetsResponse) || { content_types: {}, statuses: {} as Record<string, number> };
   },
 
   async autocomplete(params: { field: string; prefix: string; content_type_id: number; limit?: number }): Promise<string[]> {
@@ -98,8 +100,8 @@ export const searchService = {
     return (body.data as string[]) || [];
   },
 
-  async stats(): Promise<any> {
-    return api.get<any>("/search/stats");
+  async stats(): Promise<Record<string, unknown>> {
+    return api.get<Record<string, unknown>>("/search/stats");
   },
 
   async related(entryId: number, type: string): Promise<BackendEntry[]> {
