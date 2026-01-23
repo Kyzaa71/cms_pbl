@@ -35,7 +35,7 @@ export default function OrgEditMediaPage() {
         if (active) setProjectRoleName("");
       }
     };
-    (async () => { try { await getCurrentUser(); } catch {} })();
+    (async () => { try { await getCurrentUser(); } catch { } })();
     fetchRole();
     return () => { active = false; };
   }, [projectId, user?.id, getCurrentUser]);
@@ -46,7 +46,7 @@ export default function OrgEditMediaPage() {
   const [folders, setFolders] = useState<MediaFolder[]>([]);
   useEffect(() => {
     if (!mediaId) return;
-    mediaService.getById(mediaId).then(setMedia).catch(() => setMedia(null));
+    mediaService.getById(mediaId, projectId).then(setMedia).catch(() => setMedia(null));
     mediaService.listFolders(projectId).then(setFolders).catch(() => setFolders([]));
   }, [mediaId, projectId]);
 

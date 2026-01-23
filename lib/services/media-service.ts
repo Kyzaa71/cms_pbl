@@ -11,6 +11,18 @@ export interface UploadResult {
   errors?: Array<{ filename: string; error: string }>;
 }
 
+/**
+ * Get the base path for media API based on project context
+ * - Global media: /media
+ * - Project media: /projects/{id}/media
+ */
+function getMediaBasePath(projectId?: number): string {
+  if (projectId && Number.isFinite(projectId) && projectId > 0) {
+    return `/projects/${projectId}/media`;
+  }
+  return "/media";
+}
+
 async function uploadForm(path: string, form: FormData): Promise<unknown> {
   const token = api.getToken() ?? "";
   const res = await fetch(`${getBaseUrl()}${path}`, {
@@ -46,28 +58,37 @@ function inferProjectId(): number | undefined {
 
 export const mediaService = {
   async listFolders(projectId?: number): Promise<MediaFolder[]> {
-    const qs = projectId ? `?project_id=${projectId}` : "";
-    return api.get<MediaFolder[]>(`/media/folders${qs}`);
+    const basePath = getMediaBasePath(projectId);
+    return api.get<MediaFolder[]>(`${basePath}/folders`);
   },
 
   async createFolder(payload: { name: string; parent_id?: number; project_id?: number }): Promise<MediaFolder> {
-    return api.post<MediaFolder>("/media/folders", payload);
+    const basePath = getMediaBasePath(payload.project_id);
+    return api.post<MediaFolder>(`${basePath}/folders`, payload);
   },
 
-  async stats(): Promise<Record<string, unknown>> {
-    return api.get<Record<string, unknown>>("/media/stats");
+  async stats(projectId?: number): Promise<Record<string, unknown>> {
+    const basePath = getMediaBasePath(projectId);
+    return api.get<Record<string, unknown>>(`${basePath}/stats`);
   },
 
+  /**
+   * List media files
+   * - Global: GET /media/
+   * - Project: GET /projects/{id}/media/
+   */
   async list(params: { page?: number; limit?: number; type?: string; folder?: string; search?: string; project_id?: number } = {}): Promise<{ media: MediaFile[]; meta: Meta }> {
+    const basePath = getMediaBasePath(params.project_id);
     const query = new URLSearchParams();
     if (params.page) query.append("page", String(params.page));
     if (params.limit) query.append("limit", String(params.limit));
     if (params.type) query.append("type", params.type);
     if (params.folder) query.append("folder", params.folder);
     if (params.search) query.append("search", params.search);
-    if (params.project_id) query.append("project_id", String(params.project_id));
 
-    const res = await fetch(`${getBaseUrl()}/media?${query.toString()}`, {
+    const queryStr = query.toString();
+    const url = `${getBaseUrl()}${basePath}/${queryStr ? `?${queryStr}` : ""}`;
+    const res = await fetch(url, {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${api.getToken() ?? ""}` },
     });
     const body = await res.json();
@@ -77,14 +98,19 @@ export const mediaService = {
     return { media: (body.data as MediaFile[]) || [], meta: body.meta || {} };
   },
 
+  /**
+   * Search media files
+   * - Global: GET /media/search?q=keyword
+   * - Project: GET /projects/{id}/media/search?q=keyword
+   */
   async search(q: string, params: { page?: number; limit?: number; project_id?: number } = {}): Promise<{ media: MediaFile[]; meta: Meta }> {
+    const basePath = getMediaBasePath(params.project_id);
     const query = new URLSearchParams();
     query.append("q", q);
     if (params.page) query.append("page", String(params.page));
     if (params.limit) query.append("limit", String(params.limit));
-    if (params.project_id) query.append("project_id", String(params.project_id));
 
-    const res = await fetch(`${getBaseUrl()}/media/search?${query.toString()}`, {
+    const res = await fetch(`${getBaseUrl()}${basePath}/search?${query.toString()}`, {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${api.getToken() ?? ""}` },
     });
     const body = await res.json();
@@ -94,24 +120,29 @@ export const mediaService = {
     return { media: (body.data as MediaFile[]) || [], meta: body.meta || {} };
   },
 
-  async getById(id: number): Promise<MediaFile> {
-    const pid = inferProjectId();
-    const qs = pid && Number.isFinite(pid) && pid > 0 ? `?project_id=${pid}` : "";
-    return api.get<MediaFile>(`/media/${id}${qs}`);
+  async getById(id: number, projectId?: number): Promise<MediaFile> {
+    const pid = projectId ?? inferProjectId();
+    const basePath = getMediaBasePath(pid);
+    return api.get<MediaFile>(`${basePath}/${id}`);
   },
 
   async update(id: number, payload: { alt?: string; caption?: string; folder?: string; tags?: string[] }, projectId?: number): Promise<MediaFile> {
     const pid = projectId ?? inferProjectId();
-    const qs = pid && Number.isFinite(pid) && pid > 0 ? `?project_id=${pid}` : "";
-    return api.put<MediaFile>(`/media/${id}${qs}`, payload);
+    const basePath = getMediaBasePath(pid);
+    return api.put<MediaFile>(`${basePath}/${id}`, payload);
   },
 
-  async remove(id: number): Promise<void> {
-    const pid = inferProjectId();
-    const qs = pid && Number.isFinite(pid) && pid > 0 ? `?project_id=${pid}` : "";
-    await api.delete<void>(`/media/${id}${qs}`);
+  async remove(id: number, projectId?: number): Promise<void> {
+    const pid = projectId ?? inferProjectId();
+    const basePath = getMediaBasePath(pid);
+    await api.delete<void>(`${basePath}/${id}`);
   },
 
+  /**
+   * Upload single media file
+   * - Global: POST /media/upload
+   * - Project: POST /projects/{id}/media/upload
+   */
   async upload(file: File, metadata: { folder?: string; alt?: string; caption?: string; tags?: string[]; project_id?: number } = {}): Promise<MediaFile> {
     const form = new FormData();
     form.append("file", file);
@@ -120,18 +151,23 @@ export const mediaService = {
     if (metadata.caption) form.append("caption", metadata.caption);
     if (metadata.tags) form.append("tags", JSON.stringify(metadata.tags));
     const pid = metadata.project_id ?? inferProjectId();
-    const qs = pid && Number.isFinite(pid) && pid > 0 ? `?project_id=${pid}` : "";
-    const data = await uploadForm(`/media/upload${qs}`, form);
+    const basePath = getMediaBasePath(pid);
+    const data = await uploadForm(`${basePath}/upload`, form);
     return data as MediaFile;
   },
 
+  /**
+   * Bulk upload media files
+   * - Global: POST /media/bulk-upload
+   * - Project: POST /projects/{id}/media/bulk-upload
+   */
   async bulkUpload(files: File[], folder?: string, projectId?: number): Promise<UploadResult> {
     const form = new FormData();
     files.forEach((f) => form.append("files", f));
     if (folder) form.append("folder", folder);
     const pid = projectId ?? inferProjectId();
-    const qs = pid && Number.isFinite(pid) && pid > 0 ? `?project_id=${pid}` : "";
-    const data = await uploadForm(`/media/bulk-upload${qs}`, form);
+    const basePath = getMediaBasePath(pid);
+    const data = await uploadForm(`${basePath}/bulk-upload`, form);
     return data as UploadResult;
   },
 };

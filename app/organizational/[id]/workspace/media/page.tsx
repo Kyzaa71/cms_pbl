@@ -60,7 +60,7 @@ export default function OrgMediaPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => { try { await getCurrentUser(); } catch {} })();
+    (async () => { try { await getCurrentUser(); } catch { } })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -69,7 +69,7 @@ export default function OrgMediaPage() {
       setLoading(true);
       setError(null);
       try {
-        const [f, s] = await Promise.all([mediaService.listFolders(projectId), mediaService.stats()]);
+        const [f, s] = await Promise.all([mediaService.listFolders(projectId), mediaService.stats(projectId)]);
         setFolders(f);
         setStats(s as MediaStats);
       } catch (e: unknown) {
@@ -143,7 +143,7 @@ export default function OrgMediaPage() {
 
   const handleDelete = (media: UIMediaFile) => {
     if (confirm(`Are you sure you want to delete "${media.file_name}"?`)) {
-      mediaService.remove(media.id).then(() => {
+      mediaService.remove(media.id, projectId).then(() => {
         setAllMedia((prev) => prev.filter((m) => m.id !== media.id));
         setTotalCount((c) => Math.max(0, c - 1));
       }).catch((e: unknown) => {
@@ -270,14 +270,14 @@ export default function OrgMediaPage() {
             <MediaGrid
               media={filteredMedia}
               onView={handleView}
-              onEdit={(["projectadmin","projecteditor"].includes(projectRoleKey)) ? handleEdit : undefined}
+              onEdit={(["projectadmin", "projecteditor"].includes(projectRoleKey)) ? handleEdit : undefined}
               onDelete={(projectRoleKey === "projectadmin") ? handleDelete : undefined}
             />
           ) : (
             <MediaList
               media={filteredMedia}
               onView={handleView}
-              onEdit={(["projectadmin","projecteditor"].includes(projectRoleKey)) ? handleEdit : undefined}
+              onEdit={(["projectadmin", "projecteditor"].includes(projectRoleKey)) ? handleEdit : undefined}
               onDelete={(projectRoleKey === "projectadmin") ? handleDelete : undefined}
             />
           )}
