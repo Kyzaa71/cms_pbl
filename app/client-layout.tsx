@@ -29,7 +29,7 @@ export default function ClientLayout({
       const token = api.getToken();
       const part = token ? token.split(".")[1] || "" : "";
       let exp = 0;
-      try { exp = token ? JSON.parse(atob(part)).exp ?? 0 : 0; } catch {}
+      try { exp = token ? JSON.parse(atob(part)).exp ?? 0 : 0; } catch { }
       const nowSec = Math.floor(now / 1000);
       const near = exp > 0 && exp <= nowSec + 60;
       const hasRefresh = typeof document !== "undefined" && !!localStorage.getItem("refresh_token");
@@ -46,27 +46,27 @@ export default function ClientLayout({
   useEffect(() => {
     const token = api.getToken();
     if (token) {
-      getCurrentUser().catch(() => {});
+      getCurrentUser().catch(() => { });
     }
   }, [getCurrentUser]);
 
   // Deteksi halaman auth (login atau signup)
   const isAuthPage =
-    pathname?.startsWith("/auth/login") || pathname?.startsWith("/auth/signup") || 
-    pathname?.startsWith("/auth/forgot-password") || pathname?.startsWith("/auth/check-email") || 
+    pathname?.startsWith("/auth/login") || pathname?.startsWith("/auth/signup") ||
+    pathname?.startsWith("/auth/forgot-password") || pathname?.startsWith("/auth/check-email") ||
     pathname?.startsWith("/auth/new-password") || pathname?.startsWith("/auth/success-reset-password") ||
-    pathname?.startsWith("/auth/link-expired");
+    pathname?.startsWith("/auth/link-expired") || pathname?.startsWith("/auth/google");
 
   // Kalau halaman auth, tampilkan tanpa layout tambahan
   if (isAuthPage) {
-    return <>{children}</>; 
+    return <>{children}</>;
   }
 
   // Layout utama dengan sidebar dan navbar
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] transition-colors">
       <Sidebar onToggle={setSidebarCollapsed} />
-      <div 
+      <div
         className="transition-all duration-300"
         style={{ marginLeft: sidebarCollapsed ? "80px" : "256px" }}
       >
