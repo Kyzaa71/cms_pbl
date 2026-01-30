@@ -51,13 +51,25 @@ export function WorkflowActions({
       </div>
     );
   }
-  const availableTransitions = getAvailableTransitions(currentStatus, roleName || "viewer");
+  const availableTransitions = getAvailableTransitions(currentStatus, roleName || undefined);
   const filteredTransitions = availableTransitions.filter(({ toStatus }) => {
     if (toStatus === "approved" || toStatus === "published") {
       return can("ContentEntry", "approve");
     }
     return can("ContentEntry", "update");
   });
+
+  const uniqueTransitions = (() => {
+    const seen = new Set<WorkflowStatus>();
+    const out: { toStatus: WorkflowStatus; requiredRole: string }[] = [];
+    for (const t of filteredTransitions) {
+      if (!seen.has(t.toStatus)) {
+        seen.add(t.toStatus);
+        out.push(t);
+      }
+    }
+    return out;
+  })();
 
   if (filteredTransitions.length === 0) {
     return (
@@ -162,7 +174,7 @@ export function WorkflowActions({
     <div className="flex flex-wrap items-center gap-3">
       <StatusBadge status={currentStatus} />
       <div className="flex flex-wrap gap-2">
-        {filteredTransitions.map((transition) => getActionButton(transition))}
+        {uniqueTransitions.map((transition) => getActionButton(transition))}
       </div>
     </div>
   );

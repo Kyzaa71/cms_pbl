@@ -1,6 +1,7 @@
 "use client";
 
-import { WorkflowHistory, formatDateTime, getInitials } from "./types";
+import type { WorkflowHistory } from "@/types/backend-models";
+import { formatDateTime, getInitials } from "./types";
 import { StatusBadge } from "./status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -34,7 +35,7 @@ export function WorkflowHistoryTimeline({
               <div className="w-12 h-12 rounded-full bg-[var(--card-bg-inner)] border-2 border-[var(--border)] flex items-center justify-center">
                 <Avatar className="w-8 h-8">
                   <AvatarFallback className="text-xs">
-                    {getInitials(item.user.name)}
+                    {getInitials(item.user?.name || "")}
                   </AvatarFallback>
                 </Avatar>
               </div>
@@ -47,23 +48,23 @@ export function WorkflowHistoryTimeline({
                   <div className="flex items-center gap-3">
                     <div>
                       <p className="font-medium text-[var(--foreground)]">
-                        {item.user.name}
+                        {item.user?.name || "-"}
                       </p>
                       <p className="text-sm text-[var(--muted-foreground)]">
-                        {item.user.email}
+                        {item.user?.email || ""}
                       </p>
                     </div>
                   </div>
                   <span className="text-xs text-[var(--muted-foreground)]">
-                    {formatDateTime(item.createdAt)}
+                    {formatDateTime(item.created_at)}
                   </span>
                 </div>
 
                 {/* Status Change */}
                 <div className="flex items-center gap-2 mb-3">
-                  <StatusBadge status={item.fromStatus} />
+                  <StatusBadge status={item.from_status} />
                   <span className="text-[var(--muted-foreground)]">→</span>
-                  <StatusBadge status={item.toStatus} />
+                  <StatusBadge status={item.to_status} />
                 </div>
 
                 {/* Comment */}

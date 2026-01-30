@@ -86,7 +86,16 @@ export function useAuth() {
         if (module === "ContentEntry" && (action === "create" || action === "update")) return true;
         if (module === "Media" && (action === "create" || action === "update")) return true;
       }
+      if (roleKey === "projecteditor") {
+        if (module === "ContentEntry" && (action === "create" || action === "update")) return true;
+        if (module === "Media" && (action === "create" || action === "update")) return true;
+      }
       if (roleKey === "contentwriter") {
+        if (module === "ContentEntry" && (action === "create" || action === "update")) return true;
+        if (module === "Media" && (action === "create" || action === "read")) return true;
+        if (module === "SEO" && action === "read") return true;
+      }
+      if (roleKey === "projectcontentwriter") {
         if (module === "ContentEntry" && (action === "create" || action === "update")) return true;
         if (module === "Media" && (action === "create" || action === "read")) return true;
         if (module === "SEO" && action === "read") return true;

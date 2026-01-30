@@ -46,9 +46,37 @@ export function MediaCard({
   useEffect(() => {
     const revoked: string | null = null;
     const url = proxiedUrl(media.url);
-    setPreviewSrc(isImage ? url : null);
+    if (isImage) {
+      setPreviewSrc(url);
+      return () => { if (revoked) URL.revokeObjectURL(revoked); };
+    }
+    if (category === "video" && url) {
+      const video = document.createElement("video");
+      video.src = url;
+      video.preload = "metadata";
+      video.muted = true;
+      video.addEventListener("loadeddata", () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const w = Math.max(1, video.videoWidth);
+          const h = Math.max(1, video.videoHeight);
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg");
+          setPreviewSrc(dataUrl);
+        } catch {}
+      });
+      video.addEventListener("error", () => {
+        setPreviewSrc(null);
+      });
+    } else {
+      setPreviewSrc(null);
+    }
     return () => { if (revoked) URL.revokeObjectURL(revoked); };
-  }, [media, isImage, proxiedUrl]);
+  }, [media, isImage, category]);
 
   return (
     <Card
@@ -61,7 +89,7 @@ export function MediaCard({
     >
       {/* Thumbnail/Preview */}
       <div className="relative aspect-video bg-[var(--card-bg-inner)] overflow-hidden">
-        {isImage && previewSrc ? (
+        {previewSrc ? (
           <img
             src={previewSrc}
             alt={media.alt}

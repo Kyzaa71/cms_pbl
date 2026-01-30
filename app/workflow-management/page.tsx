@@ -90,15 +90,24 @@ export default function WorkflowManagementPage() {
   const projectRoleKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
   const globalRoleKey = (roleName || "").toLowerCase().replace(/[\s_-]+/g, "");
   const orgCanTransition = (from: WorkflowStatus, to: WorkflowStatus): boolean => {
-    if (from === "draft" && to === "in_review") return ["projectcontentwriter", "projecteditor", "projectadmin"].includes(projectRoleKey);
-    if (from === "in_review" && to === "ready_for_approval") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
-    if (from === "in_review" && to === "rejected") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
-    if (from === "in_review" && to === "draft") return ["projecteditor", "projectadmin"].includes(projectRoleKey);
-    if (from === "ready_for_approval" && to === "approved") return ["projectowner", "projectadmin"].includes(projectRoleKey);
-    if (from === "ready_for_approval" && to === "rejected") return ["manager", "admin"].includes(globalRoleKey);
-    if (from === "approved" && to === "published") return ["projectowner", "projectadmin"].includes(projectRoleKey);
-    if (from === "rejected" && to === "draft") return ["projectcontentwriter", "projecteditor", "projectadmin"].includes(projectRoleKey);
-    return false;
+    const mapProjectRole = (key: string): string => {
+      if (key === "projectadmin") return "admin";
+      if (key === "projectowner") return "manager";
+      if (key === "projecteditor") return "editor";
+      if (key === "projectviewer") return "viewer";
+      if (key === "projectcontentwriter") return "content_writer";
+      return "";
+    };
+    const normalizeGlobal = (key: string): string => {
+      if (key === "contentwriter") return "content_writer";
+      return key;
+    };
+    const role = (() => {
+      const proj = mapProjectRole(projectRoleKey);
+      if (proj) return proj;
+      return normalizeGlobal(globalRoleKey);
+    })();
+    return isValidTransition(from, to, role);
   };
 
   // Removed auto-refresh of current user to avoid excessive /auth/refresh calls

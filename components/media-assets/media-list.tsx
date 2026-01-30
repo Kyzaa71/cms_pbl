@@ -43,12 +43,40 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
   useEffect(() => {
     const revoked: string[] = [];
     const load = async () => {
-      const targets = media.filter((m) => getMediaTypeCategory(m.type) === "image" && !(m.id in previewMap));
-      if (targets.length === 0) return;
-      const entries: Array<[number, string | null]> = targets.map((m) => [m.id, proxiedUrl(m.url)]);
       const next = { ...previewMap };
-      entries.forEach(([id, url]) => { if (url) next[id] = url; });
-      setPreviewMap(next);
+      const imgTargets = media.filter((m) => getMediaTypeCategory(m.type) === "image" && !(m.id in next));
+      imgTargets.forEach((m) => {
+        const url = proxiedUrl(m.url);
+        if (url) next[m.id] = url;
+      });
+      const vidTargets = media.filter((m) => getMediaTypeCategory(m.type) === "video" && !(m.id in next));
+      vidTargets.forEach((m) => {
+        const url = proxiedUrl(m.url);
+        if (!url) return;
+        const video = document.createElement("video");
+        video.src = url;
+        video.preload = "metadata";
+        video.muted = true;
+        video.addEventListener("loadeddata", () => {
+          try {
+            const canvas = document.createElement("canvas");
+            const w = Math.max(1, video.videoWidth);
+            const h = Math.max(1, video.videoHeight);
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+            ctx.drawImage(video, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL("image/jpeg");
+            next[m.id] = dataUrl;
+            setPreviewMap({ ...next });
+          } catch {}
+        });
+        video.addEventListener("error", () => {});
+      });
+      if (imgTargets.length > 0 && vidTargets.length === 0) {
+        setPreviewMap(next);
+      }
     };
     load();
     return () => { revoked.forEach((u) => URL.revokeObjectURL(u)); };
@@ -92,14 +120,12 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
                 {/* Preview */}
                 <td className="py-3 px-4">
                   <div className="w-16 h-16 rounded overflow-hidden bg-[var(--card-bg-inner)] flex items-center justify-center">
-                    {category === "image" ? (
-                      previewMap[item.id] ? (
-                        <img src={previewMap[item.id]} alt={item.alt} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-[var(--card-bg)]">
-                          <ImageIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
-                        </div>
-                      )
+                    {previewMap[item.id] ? (
+                      <img src={previewMap[item.id]} alt={item.alt} className="w-full h-full object-cover" />
+                    ) : category === "image" ? (
+                      <div className="w-full h-full flex items-center justify-center bg-[var(--card-bg)]">
+                        <ImageIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
+                      </div>
                     ) : category === "video" ? (
                       <Video className="w-8 h-8 text-[var(--muted-foreground)]" />
                     ) : (

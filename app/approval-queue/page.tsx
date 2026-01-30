@@ -181,7 +181,7 @@ export default function ApprovalQueuePage() {
     fillActionUsers();
   }, [filteredEntries]);
 
-  const publishedCount = publishedTotal;
+  const publishedCount = publishedEntries.length;
 
   const handleView = (entryId: number) => {
     if (projectId) {
@@ -197,8 +197,8 @@ export default function ApprovalQueuePage() {
     const updated = useChange
       ? await workflowService.changeStatus(entryId, { status: "approved", comment })
       : await workflowService.approve(entryId, { comment });
-    
-    setEntries((prev) => {
+    setEntries((prev) => prev.filter((e) => e.id !== updated.id));
+    setApprovedEntries((prev) => {
       const exists = prev.some((e) => e.id === updated.id);
       if (exists) return prev.map((e) => (e.id === updated.id ? updated : e));
       return [updated, ...prev];
@@ -216,7 +216,12 @@ export default function ApprovalQueuePage() {
     const updated = useChange
       ? await workflowService.changeStatus(entryId, { status: "rejected", comment })
       : await workflowService.reject(entryId, { comment });
-    setEntries((prev) => prev.filter((e) => e.id !== updated.id));
+    if (status === "ready_for_approval") {
+      setEntries((prev) => prev.filter((e) => e.id !== updated.id));
+    }
+    if (status === "approved") {
+      setApprovedEntries((prev) => prev.filter((e) => e.id !== updated.id));
+    }
     alert(`Entry ${entryId} rejected with reason: ${comment}`);
   };
 
@@ -226,7 +231,12 @@ export default function ApprovalQueuePage() {
     const updated = useChange
       ? await workflowService.changeStatus(entryId, { status: "published", comment })
       : await workflowService.publish(entryId, { comment });
-    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    setApprovedEntries((prev) => prev.filter((e) => e.id !== updated.id));
+    setPublishedEntries((prev) => {
+      const exists = prev.some((e) => e.id === updated.id);
+      if (exists) return prev.map((e) => (e.id === updated.id ? updated : e));
+      return [updated, ...prev];
+    });
     alert(`Entry ${entryId} published${comment ? ` with comment: ${comment}` : ""}`);
   };
 

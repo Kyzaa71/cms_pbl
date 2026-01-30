@@ -24,6 +24,8 @@ import type { ContentEntry, WorkflowHistory, WorkflowComment, WorkflowAssignment
 import { workflowService } from "@/lib/services/workflow-service";
 import { useAuth } from "@/hooks/use-auth";
 import { contentService } from "@/lib/services/content-service";
+import { useSearchParams } from "next/navigation";
+import { projectService } from "@/lib/services/project-service";
 
 interface EntryDetailViewProps {
   entry: ContentEntry | null;
@@ -39,6 +41,10 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
   const [contentTypeName, setContentTypeName] = useState<string>("");
   const [viewEntry, setViewEntry] = useState<ContentEntry | null>(entry);
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const projectIdParam = searchParams.get("project_id");
+  const projectId = projectIdParam ? Number(projectIdParam) : undefined;
+  const [projectRoleName, setProjectRoleName] = useState<string>("");
   useEffect(() => { setViewEntry(entry); }, [entry]);
   useEffect(() => {
     if (viewEntry?.id) {
@@ -47,6 +53,22 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
       workflowService.getActiveAssignment(viewEntry.id).then(setActiveAssignment).catch(() => setActiveAssignment(null));
     }
   }, [viewEntry?.id]);
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      if (!projectId || !user?.id) { if (active) setProjectRoleName(""); return; }
+      try {
+        const members = await projectService.getProjectMembers(projectId);
+        const me = members.find((m) => m.user_id === user.id);
+        const rn = (me?.role?.name || "").trim();
+        if (active) setProjectRoleName(rn);
+      } catch {
+        if (active) setProjectRoleName("");
+      }
+    };
+    run();
+    return () => { active = false; };
+  }, [projectId, user?.id]);
 
   useEffect(() => {
     if (viewEntry?.content_type_id) {
@@ -292,7 +314,12 @@ export function EntryDetailView({ entry }: EntryDetailViewProps) {
             variant="link"
             className="p-0 h-auto mt-2 text-[var(--primary)]"
             onClick={() => setShowAssignmentModal(true)}
-            disabled={!!activeAssignment || !["draft", "rejected"].includes(viewEntry.status)}
+            disabled={(() => {
+              const globalKey = ((user?.role?.name || "") as string).toLowerCase().replace(/[\s_-]+/g, "");
+              const projKey = (projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "");
+              const canAssign = ["admin", "editor"].includes(globalKey) || ["projecteditor", "projectadmin"].includes(projKey);
+              return !!activeAssignment || !["draft", "rejected"].includes(viewEntry.status) || !canAssign;
+            })()}
           >
             {activeAssignment
               ? "Assigned"

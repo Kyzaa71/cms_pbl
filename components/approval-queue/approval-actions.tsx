@@ -57,15 +57,30 @@ export function ApprovalActions({
   }, [projectId, user?.id]);
   const globalRoleKey = ((user?.role?.name || "").toLowerCase().replace(/[\s_-]+/g, "").trim());
   const projectRoleKey = ((projectRoleName || "").toLowerCase().replace(/[\s_-]+/g, "").trim());
-  const canApprove = status === "ready_for_approval" && (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin");
+  const canApprove = status === "ready_for_approval" && (
+    globalRoleKey === "admin" ||
+    globalRoleKey === "manager" ||
+    projectRoleKey === "projectowner" ||
+    projectRoleKey === "projectadmin"
+  );
   const canReject = status === "ready_for_approval" && (
     projectRoleKey === "projectowner" ||
     projectRoleKey === "projectadmin" ||
     globalRoleKey === "manager" ||
     globalRoleKey === "admin"
   );
-  const canPublish = status === "approved" && Boolean(onPublish) && (projectRoleKey === "projectowner" || projectRoleKey === "projectadmin");
-  const canBackToDraft = status === "rejected" && (projectRoleKey === "projectcontentwriter" || projectRoleKey === "projecteditor" || projectRoleKey === "projectadmin");
+  const canPublish = status === "approved" && Boolean(onPublish) && (
+    globalRoleKey === "admin" ||
+    globalRoleKey === "manager" ||
+    projectRoleKey === "projectowner" ||
+    projectRoleKey === "projectadmin"
+  );
+  const canBackToDraft = status === "rejected" && (
+    globalRoleKey === "admin" ||
+    projectRoleKey === "projectcontentwriter" ||
+    projectRoleKey === "projecteditor" ||
+    projectRoleKey === "projectadmin"
+  );
 
   const handleApprove = (comment?: string) => {
     onApprove(entryId, comment);

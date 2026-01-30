@@ -65,6 +65,8 @@ export function EntryForm({ contentTypeId, entryId, projectId, onSubmit, onCance
   
   const roleKey = (roleName || "").toLowerCase().replace(/[\s_-]+/g, "").trim();
   const [isProjectAdminMembership, setIsProjectAdminMembership] = useState<boolean>(false);
+  const [isProjectEditorMembership, setIsProjectEditorMembership] = useState<boolean>(false);
+  const [isProjectContentWriterMembership, setIsProjectContentWriterMembership] = useState<boolean>(false);
   const isProjectAdmin = roleKey === "projectadmin" || isProjectAdminMembership;
   const [contentType, setContentType] = useState<BackendContentType | null>(null);
   interface EntryField {
@@ -146,8 +148,12 @@ export function EntryForm({ contentTypeId, entryId, projectId, onSubmit, onCance
           (typeof me?.role === "string" ? (me?.role as string) : undefined);
         const key = (nameRaw || "").toLowerCase().replace(/[\s_-]+/g, "").trim();
         if (!cancelled) setIsProjectAdminMembership(key === "projectadmin");
+        if (!cancelled) setIsProjectEditorMembership(key === "projecteditor");
+        if (!cancelled) setIsProjectContentWriterMembership(key === "projectcontentwriter");
       } catch {
         if (!cancelled) setIsProjectAdminMembership(false);
+        if (!cancelled) setIsProjectEditorMembership(false);
+        if (!cancelled) setIsProjectContentWriterMembership(false);
       }
     }
     checkProjectRole();
@@ -336,7 +342,9 @@ export function EntryForm({ contentTypeId, entryId, projectId, onSubmit, onCance
 
   // Get current entry status if editing
   const currentStatus = "draft";
-  const canSubmit = isProjectAdmin ? true : (entryId ? can("ContentEntry", "update") : can("ContentEntry", "create"));
+  const canSubmit = isProjectAdmin || isProjectEditorMembership || isProjectContentWriterMembership
+    ? true
+    : (entryId ? can("ContentEntry", "update") : can("ContentEntry", "create"));
   const actionScope = (() => {
     const action: "create" | "update" = entryId ? "update" : "create";
     const perms: Permission[] = Array.isArray(user?.role?.permissions) ? (user!.role!.permissions as Permission[]) : [];
@@ -344,9 +352,11 @@ export function EntryForm({ contentTypeId, entryId, projectId, onSubmit, onCance
     return (p?.field_scope as string) || "all";
   })();
   const hasRequiredSeo = fields.filter((f) => f.isSeo).some((f) => !!f.required);
-  const blockedBySeoRequirement = isProjectAdmin ? false : (!entryId && actionScope === "non_seo_only" && hasRequiredSeo);
+  const blockedBySeoRequirement = isProjectAdmin || isProjectEditorMembership || isProjectContentWriterMembership ? false : (!entryId && actionScope === "non_seo_only" && hasRequiredSeo);
   const isEditableField = (field: EntryField): boolean => {
     if (isProjectAdmin) return true;
+    if (isProjectEditorMembership) return true;
+    if (isProjectContentWriterMembership) return !field.isSeo;
     const action: "create" | "update" = entryId ? "update" : "create";
     if (!can("ContentEntry", action)) return false;
     const perms: Permission[] = Array.isArray(user?.role?.permissions) ? (user!.role!.permissions as Permission[]) : [];

@@ -433,7 +433,8 @@ export const dummyTransitions: WorkflowTransition[] = [
   { id: 15, fromStatus: "approved", toStatus: "published", requiredRole: "manager", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
   { id: 16, fromStatus: "approved", toStatus: "published", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
   { id: 17, fromStatus: "rejected", toStatus: "draft", requiredRole: "editor", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: 18, fromStatus: "rejected", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 18, fromStatus: "rejected", toStatus: "draft", requiredRole: "content_writer", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: 19, fromStatus: "rejected", toStatus: "draft", requiredRole: "admin", createdAt: "2024-01-01", updatedAt: "2024-01-01" },
 ];
 
 // Helper Functions
@@ -463,23 +464,31 @@ export const getStatusColor = (status: WorkflowStatus): string => {
 
 export const getAvailableTransitions = (
   currentStatus: WorkflowStatus,
-  userRole: string
+  userRole?: string
 ): WorkflowTransition[] => {
-  return dummyTransitions.filter(
-    (t) => t.fromStatus === currentStatus && t.requiredRole === userRole
-  );
+  const transitions = dummyTransitions.filter((t) => t.fromStatus === currentStatus);
+  if (!userRole) return transitions;
+  const key = userRole.toLowerCase().trim();
+  if (key === "admin" || key === "manager") return transitions;
+  return transitions.filter((t) => t.requiredRole === key);
 };
 
 export const isValidTransition = (
   fromStatus: WorkflowStatus,
   toStatus: WorkflowStatus,
-  userRole: string
+  userRole?: string
 ): boolean => {
+  const pathExists = dummyTransitions.some(
+    (t) => t.fromStatus === fromStatus && t.toStatus === toStatus
+  );
+  if (!userRole) return pathExists;
+  const key = userRole.toLowerCase().trim();
+  if (key === "admin") return pathExists;
   return dummyTransitions.some(
     (t) =>
       t.fromStatus === fromStatus &&
       t.toStatus === toStatus &&
-      t.requiredRole === userRole
+      t.requiredRole === key
   );
 };
 
@@ -493,7 +502,9 @@ export const getInitials = (name: string): string => {
 };
 
 export const formatDate = (dateString: string): string => {
+  if (!dateString) return "-";
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
   return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -502,7 +513,9 @@ export const formatDate = (dateString: string): string => {
 };
 
 export const formatDateTime = (dateString: string): string => {
+  if (!dateString) return "-";
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
   return date.toLocaleString("en-US", {
     year: "numeric",
     month: "short",

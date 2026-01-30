@@ -56,6 +56,11 @@ export function MediaDetailView({ media, onEdit, onDelete }: MediaDetailViewProp
     return `${BASE_URL}/${cleaned}`;
   };
 
+  const proxiedUrl = (url?: string): string | null => {
+    const u = normalizeUrl(url);
+    return u ? `/api/media-proxy?url=${encodeURIComponent(u)}` : null;
+  };
+
   useEffect(() => {
     let revoked: string | null = null;
     async function loadPreview() {
@@ -193,13 +198,12 @@ export function MediaDetailView({ media, onEdit, onDelete }: MediaDetailViewProp
                   }}
                 />
               ) : category === "video" ? (
-                <div className="text-center">
-                  <Video className="w-24 h-24 mx-auto text-[var(--muted-foreground)] mb-4" />
-                  <p className="text-[var(--muted-foreground)]">Video Preview</p>
-                  <p className="text-sm text-[var(--muted-foreground)] mt-2">
-                    {media.file_name}
-                  </p>
-                </div>
+                <video
+                  src={proxiedUrl(media.url) || undefined}
+                  controls
+                  preload="metadata"
+                  className="max-w-full max-h-[600px] rounded-lg bg-black"
+                />
               ) : (
                 <div className="text-center">
                   <FileText className="w-24 h-24 mx-auto text-[var(--muted-foreground)] mb-4" />
