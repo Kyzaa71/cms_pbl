@@ -12,9 +12,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const api = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="bg-gray-100 min-h-screen">
+      <head>
+        <link rel="preconnect" href={api} />
+      </head>
+      <body className="min-h-screen">
         <ThemeProvider defaultTheme="light" enableSystem>
           <ClientLayout>{children}</ClientLayout>
         </ThemeProvider>

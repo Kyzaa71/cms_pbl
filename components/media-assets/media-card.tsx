@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import NextImage from "next/image";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MediaFile, formatFileSize, getMediaTypeCategory } from "./types";
@@ -58,13 +59,15 @@ export function MediaCard({
       video.addEventListener("loadeddata", () => {
         try {
           const canvas = document.createElement("canvas");
-          const w = Math.max(1, video.videoWidth);
-          const h = Math.max(1, video.videoHeight);
-          canvas.width = w;
-          canvas.height = h;
+          const w = Math.max(1, video.videoWidth || 640);
+          const h = Math.max(1, video.videoHeight || 360);
+          const maxW = 320;
+          const scale = Math.min(1, maxW / w);
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
           const ctx = canvas.getContext("2d");
           if (!ctx) return;
-          ctx.drawImage(video, 0, 0, w, h);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL("image/jpeg");
           setPreviewSrc(dataUrl);
         } catch {}
@@ -90,10 +93,12 @@ export function MediaCard({
       {/* Thumbnail/Preview */}
       <div className="relative aspect-video bg-[var(--card-bg-inner)] overflow-hidden">
         {previewSrc ? (
-          <img
+          <NextImage
             src={previewSrc}
-            alt={media.alt}
-            className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
+            alt={media.alt || ""}
+            fill
+            sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 20vw"
+            style={{ objectFit: "cover" }}
           />
         ) : isImage ? (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--card-bg)] to-[var(--card-bg-inner)]">
@@ -210,4 +215,3 @@ export function MediaCard({
     </Card>
   );
 }
-

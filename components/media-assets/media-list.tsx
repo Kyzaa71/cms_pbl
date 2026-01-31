@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import NextImage from "next/image";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { MediaFile, formatFileSize, formatDate, getMediaTypeCategory } from "./types";
@@ -26,6 +27,8 @@ interface MediaListProps {
 export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
   const [previewMap, setPreviewMap] = useState<Record<number, string>>({});
   const BASE_URL = getBaseUrl();
+  const MAX_VIDEO_THUMBS = 2;
+  const THUMB_WIDTH = 160;
 
   const normalizeUrl = (url?: string): string | null => {
     if (!url) return null;
@@ -41,46 +44,90 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
   };
 
   useEffect(() => {
-    const revoked: string[] = [];
-    const load = async () => {
-      const next = { ...previewMap };
-      const imgTargets = media.filter((m) => getMediaTypeCategory(m.type) === "image" && !(m.id in next));
-      imgTargets.forEach((m) => {
-        const url = proxiedUrl(m.url);
-        if (url) next[m.id] = url;
+    // Add image previews (cheap operation)
+    const imgTargets = media.filter(
+      (m) => getMediaTypeCategory(m.type) === "image"
+    );
+    if (imgTargets.length) {
+      setPreviewMap((prev) => {
+        const next = { ...prev };
+        for (const m of imgTargets) {
+          if (next[m.id]) continue;
+          const url = proxiedUrl(m.url);
+          if (url) next[m.id] = url;
+        }
+        return next;
       });
-      const vidTargets = media.filter((m) => getMediaTypeCategory(m.type) === "video" && !(m.id in next));
-      vidTargets.forEach((m) => {
-        const url = proxiedUrl(m.url);
-        if (!url) return;
-        const video = document.createElement("video");
-        video.src = url;
-        video.preload = "metadata";
-        video.muted = true;
-        video.addEventListener("loadeddata", () => {
-          try {
-            const canvas = document.createElement("canvas");
-            const w = Math.max(1, video.videoWidth);
-            const h = Math.max(1, video.videoHeight);
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return;
-            ctx.drawImage(video, 0, 0, w, h);
-            const dataUrl = canvas.toDataURL("image/jpeg");
-            next[m.id] = dataUrl;
-            setPreviewMap({ ...next });
-          } catch {}
-        });
-        video.addEventListener("error", () => {});
-      });
-      if (imgTargets.length > 0 && vidTargets.length === 0) {
-        setPreviewMap(next);
+    }
+
+    // Generate limited number of video thumbnails to avoid heavy CPU
+    const vidQueue = media
+      .filter((m) => getMediaTypeCategory(m.type) === "video")
+      .filter((m) => !previewMap[m.id]);
+
+    let active = 0;
+    let idx = 0;
+    let canceled = false;
+
+    const processNext = () => {
+      if (canceled) return;
+      if (active >= MAX_VIDEO_THUMBS) return;
+      if (idx >= vidQueue.length) return;
+      const m = vidQueue[idx++];
+      const url = proxiedUrl(m.url);
+      if (!url) {
+        processNext();
+        return;
+      }
+      active++;
+      const video = document.createElement("video");
+      video.src = url;
+      video.preload = "metadata";
+      video.muted = true;
+      const onLoaded = () => {
+        try {
+          const w = Math.max(1, video.videoWidth || THUMB_WIDTH);
+          const h = Math.max(1, video.videoHeight || Math.round((THUMB_WIDTH * 9) / 16));
+          const scale = THUMB_WIDTH / w;
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = Math.max(1, Math.round(h * scale));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg");
+          setPreviewMap((prev) => ({ ...prev, [m.id]: dataUrl }));
+        } finally {
+          cleanup();
+          active--;
+          // Use idle time to proceed
+          setTimeout(processBatch, 50);
+        }
+      };
+      const onError = () => {
+        cleanup();
+        active--;
+        setTimeout(processBatch, 50);
+      };
+      const cleanup = () => {
+        video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("error", onError);
+      };
+      video.addEventListener("loadeddata", onLoaded, { once: true });
+      video.addEventListener("error", onError, { once: true });
+    };
+
+    const processBatch = () => {
+      while (active < MAX_VIDEO_THUMBS && idx < vidQueue.length && !canceled) {
+        processNext();
       }
     };
-    load();
-    return () => { revoked.forEach((u) => URL.revokeObjectURL(u)); };
-  }, [media, previewMap, proxiedUrl]);
+
+    processBatch();
+    return () => {
+      canceled = true;
+    };
+  }, [media]); // intentionally exclude previewMap to avoid reprocessing on state updates
   if (media.length === 0) {
     return (
       <div className="text-center py-12 text-[var(--muted-foreground)]">
@@ -115,13 +162,21 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
                   index % 2 === 0
                     ? "bg-[var(--card-bg-inner)]"
                     : "bg-[var(--card-bg)]"
-                } hover:bg-[color-mix(in srgb, var(--primary) 8%, var(--card-bg-inner))] transition`}
+                } hover:bg-[var(--row-hover)] transition`}
               >
                 {/* Preview */}
                 <td className="py-3 px-4">
                   <div className="w-16 h-16 rounded overflow-hidden bg-[var(--card-bg-inner)] flex items-center justify-center">
                     {previewMap[item.id] ? (
-                      <img src={previewMap[item.id]} alt={item.alt} className="w-full h-full object-cover" />
+                      <NextImage
+                        src={previewMap[item.id]}
+                        alt={item.alt || ""}
+                        width={64}
+                        height={64}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        sizes="64px"
+                      />
                     ) : category === "image" ? (
                       <div className="w-full h-full flex items-center justify-center bg-[var(--card-bg)]">
                         <ImageIcon className="w-8 h-8 text-[var(--muted-foreground)]" />
@@ -230,4 +285,3 @@ export function MediaList({ media, onView, onEdit, onDelete }: MediaListProps) {
     </div>
   );
 }
-

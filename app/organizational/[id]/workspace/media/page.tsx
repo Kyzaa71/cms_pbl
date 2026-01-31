@@ -87,16 +87,41 @@ export default function OrgMediaPage() {
       setLoading(true);
       setError(null);
       try {
+        const INITIAL_LIMIT = 60;
         const { media, meta } = await mediaService.list({
           type: typeFilter === "all" ? undefined : typeFilter,
           folder: folderFilter === "all" ? undefined : folderFilter,
           search: searchQuery || undefined,
           page: 1,
-          limit: 200,
+          limit: INITIAL_LIMIT,
           project_id: projectId,
         });
         setAllMedia(media);
         setTotalCount(meta?.total ?? media.length);
+        const totalPages = Number(meta?.total_pages || 1);
+        let canceled = false;
+        // Progressive background loading of remaining pages to avoid heavy initial payload
+        const loadNextPages = async () => {
+          for (let p = 2; p <= totalPages; p++) {
+            if (canceled) break;
+            try {
+              const { media: more } = await mediaService.list({
+                type: typeFilter === "all" ? undefined : typeFilter,
+                folder: folderFilter === "all" ? undefined : folderFilter,
+                search: searchQuery || undefined,
+                page: p,
+                limit: INITIAL_LIMIT,
+                project_id: projectId,
+              });
+              setAllMedia((prev) => prev.concat(more));
+            } catch {
+              break;
+            }
+          }
+        };
+        // Defer background loading
+        setTimeout(loadNextPages, 50);
+        return () => { canceled = true; };
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         setError(msg || "Failed to load media");
@@ -104,7 +129,10 @@ export default function OrgMediaPage() {
         setLoading(false);
       }
     };
-    loadMedia();
+    const cleanup = loadMedia();
+    return () => {
+      if (typeof cleanup === "function") cleanup();
+    };
   }, [typeFilter, folderFilter, searchQuery, projectId]);
 
   const uiMedia: UIMediaFile[] = useMemo(() => {

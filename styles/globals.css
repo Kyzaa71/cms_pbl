@@ -135,6 +135,9 @@ button {
   --foreground: #171717;
   --muted-foreground: #4b5563;
 
+  /* Hover surfaces */
+  --row-hover: color-mix(in srgb, var(--primary) 6%, var(--card-bg-inner));
+
   /* Buttons & primary color */
   --primary: #3b82f6;
   --primary-hover: #2563eb;
@@ -182,53 +185,56 @@ button {
 /* === Dark Mode === */
 [data-theme="dark"] {
   /* Background - Balanced dark gray instead of pure black */
-  --background: #121212; /* Material Design dark surface - balanced dark gray */
-  --foreground: #fafafa;
-  --muted-foreground: #d4d4d4;
+  --background: #111315;
+  --foreground: #cfd6dd;
+  --muted-foreground: #8a93a1;
+
+  /* Hover surfaces - stronger mix to be visible on dark surfaces */
+  --row-hover: #18222e;
 
   /* Buttons & primary color - Brighter for better visibility in dark mode */
-  --primary: #3b82f6; /* Brighter blue for dark mode */
-  --primary-hover: #60a5fa;
+  --primary: #4c82cf;
+  --primary-hover: #6b9bd8;
   --button-text: #ffffff;
   --danger: #f87171;
-  --secondary: #8b5cf6;
+  --secondary: #6d7eb8;
 
-  --table-header-bg: #1e293b; /* Slightly lighter for better contrast */
-  --table-header-text: #f1f5f9;
+  --table-header-bg: #1a2432;
+  --table-header-text: #cfd6dd;
 
   /* Card - Hierarchical with subtle elevation */
-  --card-bg: #1e1e1e; /* Slightly lighter than background for elevation */
-  --card-bg-inner: #262626; /* Even lighter for inner cards - creates depth */
+  --card-bg: #141a21;
+  --card-bg-inner: #182028;
 
-  --accent: #facc15;
-  --accent-text: #000000;
+  --accent: #9fb2c8;
+  --accent-text: #0f1418;
 
   /* Sidebar - Balanced dark, not pure black */
-  --sidebar-bg: #1a1a1a; /* Slightly lighter than background */
-  --sidebar-text: #ffffff;
-  --sidebar-hover: rgba(255, 255, 255, 0.08); /* More subtle hover */
+  --sidebar-bg: #131920;
+  --sidebar-text: #cfd6dd;
+  --sidebar-hover: #1b2430;
 
   /* Card gradients - Adjusted for better contrast */
-  --card-bg-top: #1e1b3a; /* ungu gelap */
-  --card-bg-mid: #2563eb; /* biru terang untuk dark mode */
-  --card-bg-mid-alt: #3b82f6; /* biru medium */
-  --card-bg-gradient-1: #1e1e1e; /* Matches card-bg */
-  --card-bg-gradient-2: #262626; /* Slightly lighter */
-  --card-text: #f1f5f9; /* abu terang */
+  --card-bg-top: #181a1f;
+  --card-bg-mid: #3b6ea8;
+  --card-bg-mid-alt: #4c82cf;
+  --card-bg-gradient-1: #141a21;
+  --card-bg-gradient-2: #182028;
+  --card-text: #cfd6dd;
 
   /* Dropdown - Better contrast */
-  --dropdown-bg: #262626; /* Slightly lighter than card-bg-inner */
-  --dropdown-text: #f1f5f9;
-  --dropdown-border: #404040; /* More visible borders */
-  --dropdown-hover-bg: #333333; /* Clearer hover state */
-  --dropdown-hover-text: #ffffff;
+  --dropdown-bg: #182028;
+  --dropdown-text: #cfd6dd;
+  --dropdown-border: #22303b;
+  --dropdown-hover-bg: #1d2833;
+  --dropdown-hover-text: #cfd6dd;
 
   /* Borders - More visible but not harsh */
-  --border: #404040; /* Gray-700 equivalent - visible but not harsh */
-  --input-bg: #1e1e1e; /* Matches card-bg for consistency */
+  --border: #22303b;
+  --input-bg: #141a21;
 
-  --sidebar-active-bg: rgba(255, 255, 255, 0.15); /* Subtle white tint for clear visibility */
-  --sidebar-active-text: #ffffff;
+  --sidebar-active-bg: rgba(255, 255, 255, 0.12);
+  --sidebar-active-text: #cfd6dd;
 }
 
 /* === Dropdown Menu Style === */
