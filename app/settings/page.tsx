@@ -65,7 +65,18 @@ export default function AccountOverviewPage() {
 
           {/* Solid Buttons */}
           <div className="flex flex-col gap-2">
-            <Button onClick={() => user?.id && router.push(`/user-management/${user.id}/edit`)} className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] font-medium px-5">
+            <Button 
+              onClick={() => {
+                if (user?.id) {
+                  router.push(`/user-management/${user.id}/edit`);
+                } else {
+                  // Fallback if user ID is missing (e.g. session expired or loading)
+                  console.error("User ID missing", user);
+                  // Optionally redirect to login or show toast
+                }
+              }}
+              className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-[var(--button-text)] font-medium px-5"
+            >
               Edit Profile
             </Button>
             <Button className="bg-[var(--secondary)] hover:opacity-90 text-[var(--button-text)] font-medium px-5">

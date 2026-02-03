@@ -18,6 +18,7 @@ export default function NewPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [error, setError] = useState("");
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -28,10 +29,13 @@ export default function NewPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError("");
     try {
       const token = params.get("token") || "";
       await resetPassword(token, password);
       setIsSuccess(true);
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || "Failed to reset password");
     } finally {
       setIsLoading(false);
     }
@@ -82,6 +86,12 @@ export default function NewPasswordPage() {
             Enter your new password below to complete the reset process. Ensure it's strong and secure.
           </p>
         </div>
+
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm mb-6 text-center">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">

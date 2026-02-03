@@ -17,13 +17,10 @@ export default function CheckEmailPage() {
     setMounted(true);
   }, []);
 
-  const handleResendEmail = async () => {
-    setIsResending(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsResending(false);
-    // Redirect to new-password page after resend
-    window.location.href = '/auth/new-password';
+  const handleResendEmail = () => {
+    // Redirect back to forgot-password to allow user to re-enter email
+    // This is safer than auto-resending without verifying intent/captcha
+    window.location.href = '/auth/forgot-password';
   };
 
   return (
@@ -95,7 +92,7 @@ export default function CheckEmailPage() {
                   Sending...
                 </div>
               ) : (
-                "Don't receive the email? Click here to resend!"
+                "Don't receive the email? Click here to resend (Go back)"
               )}
             </button>
           </div>

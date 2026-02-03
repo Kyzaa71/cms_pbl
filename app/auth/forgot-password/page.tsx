@@ -25,6 +25,8 @@ export default function ForgotPasswordPage() {
     try {
       await forgotPassword(email);
       window.location.href = "/auth/check-email";
+    } catch (err: any) {
+      alert(err.message || "Failed to send reset email");
     } finally {
       setIsLoading(false);
     }

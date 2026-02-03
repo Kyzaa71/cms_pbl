@@ -14,9 +14,10 @@ interface UserFormProps {
   roles: Role[];
   mode: "create" | "edit";
   onSave: (data: Partial<User> & { password?: string }) => void;
+  hideRoleStatus?: boolean;
 }
 
-export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
+export function UserForm({ user, roles, mode, onSave, hideRoleStatus = false }: UserFormProps) {
   const router = useRouter();
   const [formData, setFormData] = useState({
     name: user?.name || "",
@@ -91,45 +92,47 @@ export function UserForm({ user, roles, mode, onSave }: UserFormProps) {
             />
           </div>
 
-          <div>
-            <Label htmlFor="role">Role</Label>
-            <Select
-              value={formData.roleId.toString()}
-              onValueChange={(value) => setFormData({ ...formData, roleId: parseInt(value) })}
-            >
-              <SelectTrigger className="mt-1 bg-[var(--input-bg)] border-[var(--border)]">
-                <SelectValue placeholder="Select role" />
-              </SelectTrigger>
-              <SelectContent>
-                {roles.map((role) => (
-                  <SelectItem key={role.id} value={role.id.toString()}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!hideRoleStatus && (
+            <>
+              <div>
+                <Label htmlFor="role">Role</Label>
+                <Select
+                  value={formData.roleId.toString()}
+                  onValueChange={(value) => setFormData({ ...formData, roleId: parseInt(value) })}
+                >
+                  <SelectTrigger className="mt-1 bg-[var(--input-bg)] border-[var(--border)]">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id.toString()}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value) => setFormData({ ...formData, status: value as "active" | "inactive" })}
+                >
+                  <SelectTrigger className="mt-1 bg-[var(--input-bg)] border-[var(--border)]">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
 
           <div>
-            <Label htmlFor="status">Status</Label>
-            <Select
-              value={formData.status}
-              onValueChange={(value: "active" | "inactive") =>
-                setFormData({ ...formData, status: value })
-              }
-            >
-              <SelectTrigger className="mt-1 bg-[var(--input-bg)] border-[var(--border)]">
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">Password {mode === "edit" && "(Leave blank to keep current)"}</Label>
             <Input
               id="password"
               type="password"

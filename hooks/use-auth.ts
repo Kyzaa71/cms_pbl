@@ -28,6 +28,12 @@ export function useAuth() {
   const resetPassword = useCallback(async (tokenStr: string, newPassword: string) => {
     await authService.resetPassword(tokenStr, newPassword);
   }, []);
+ 
+  const updateMe = useCallback(async (payload: { name?: string; email?: string; password?: string }) => {
+    const u = await authService.updateMe(payload);
+    setUser(u);
+    return u;
+  }, [setUser]);
 
   const getCurrentUser = useCallback(async () => {
     const u = await authService.getCurrentUser();
@@ -110,5 +116,5 @@ export function useAuth() {
     [user]
   );
 
-  return { user, token, refreshToken, isAuthenticated, login, signup, forgotPassword, resetPassword, getCurrentUser, logout, can };
+  return { user, token, refreshToken, isAuthenticated, login, signup, forgotPassword, resetPassword, updateMe, getCurrentUser, logout, can };
 }

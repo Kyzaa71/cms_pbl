@@ -66,6 +66,11 @@ export const authService = {
   async resetPassword(token: string, newPassword: string) {
     await api.post<unknown>("/auth/reset-password", { token, new_password: newPassword });
   },
+ 
+  async updateMe(payload: { name?: string; email?: string; password?: string }) {
+    const data = await api.put<User>("/auth/me", payload);
+    return data;
+  },
 
   async getCurrentUser() {
     const access = api.getToken();

@@ -331,12 +331,12 @@ export const formatDate = (dateString: string): string => {
 // Get status badge color
 export const getStatusBadgeColor = (status: WorkflowStatus): string => {
   const colors: Record<WorkflowStatus, string> = {
-    draft: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400",
-    in_review: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-    ready_for_approval: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-    approved: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    published: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-    rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    draft: "bg-gray-500 text-white",
+    in_review: "bg-blue-500 text-white",
+    ready_for_approval: "bg-orange-500 text-white",
+    approved: "bg-green-500 text-white",
+    published: "bg-purple-500 text-white",
+    rejected: "bg-red-500 text-white",
   };
   return colors[status] || colors.draft;
 };
