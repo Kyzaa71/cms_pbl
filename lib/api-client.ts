@@ -32,6 +32,8 @@ export function getBaseUrl(): string {
   return BASE_URL;
 }
 
+let refreshing: Promise<string | null> | null = null;
+
 function getCsrfToken(): string | null {
   if (typeof document !== "undefined") {
     try {
@@ -122,38 +124,42 @@ export async function request<T>(path: string, init: RequestInit & { retry?: num
           } catch {}
 
           if (refresh && sub) {
-            const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              mode: "cors",
-              credentials: "include",
-              body: JSON.stringify({ user_id: sub, refresh_token: refresh }),
-            });
-            const refreshBody = await refreshRes.json().catch(() => ({}));
-            if (refreshRes.ok && refreshBody?.success !== false) {
-              const newAccess = refreshBody?.data?.access_token || refreshBody?.access_token;
-              const newRefresh = refreshBody?.data?.refresh_token || refreshBody?.refresh_token;
-              if (typeof newAccess === "string" && newAccess.length > 0) {
-                setToken(newAccess);
-                if (typeof newRefresh === "string" && newRefresh.length > 0) {
-                  try { localStorage.setItem("refresh_token", newRefresh); } catch {}
+            if (!refreshing) {
+              refreshing = (async () => {
+                const r = await fetch(`${BASE_URL}/auth/refresh`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  mode: "cors",
+                  credentials: "include",
+                  body: JSON.stringify({ user_id: sub, refresh_token: refresh }),
+                });
+                const b = await r.json().catch(() => ({}));
+                if (!r.ok || b?.success === false) return null;
+                const na = b?.data?.access_token || b?.access_token;
+                const nr = b?.data?.refresh_token || b?.refresh_token;
+                if (typeof nr === "string" && nr.length > 0) {
+                  try { localStorage.setItem("refresh_token", nr); } catch {}
                 }
-                // Retry original request once with updated token
-                headers["Authorization"] = `Bearer ${newAccess}`;
-                const retryRes = await fetch(url, { ...init, headers, mode: "cors", credentials: "include" });
-                const retryBody = await parseResponse<T>(retryRes);
-                if (!retryRes.ok || retryBody.success === false) {
-                  let msg = retryBody.error?.message || retryBody.message || retryRes.statusText;
-                  if (retryRes.status === 403) msg = "No permission";
-                  if (retryRes.status === 429) msg = "Too Many Requests";
-                  const errObj = new Error(msg) as Error & { code?: string; details?: unknown; status?: number };
-                  errObj.code = retryBody.error?.code || String(retryRes.status);
-                  errObj.details = retryBody.error?.details;
-                  errObj.status = retryRes.status;
-                  throw errObj;
-                }
-                return retryBody.data as T;
+                return typeof na === "string" && na.length > 0 ? na : null;
+              })().finally(() => { refreshing = null; });
+            }
+            const newAccess = await refreshing;
+            if (newAccess) {
+              setToken(newAccess);
+              headers["Authorization"] = `Bearer ${newAccess}`;
+              const retryRes = await fetch(url, { ...init, headers, mode: "cors", credentials: "include" });
+              const retryBody = await parseResponse<T>(retryRes);
+              if (!retryRes.ok || retryBody.success === false) {
+                let msg = retryBody.error?.message || retryBody.message || retryRes.statusText;
+                if (retryRes.status === 403) msg = "No permission";
+                if (retryRes.status === 429) msg = "Too Many Requests";
+                const errObj = new Error(msg) as Error & { code?: string; details?: unknown; status?: number };
+                errObj.code = retryBody.error?.code || String(retryRes.status);
+                errObj.details = retryBody.error?.details;
+                errObj.status = retryRes.status;
+                throw errObj;
               }
+              return retryBody.data as T;
             }
           }
         } catch {}

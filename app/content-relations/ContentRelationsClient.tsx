@@ -318,12 +318,18 @@
  
        <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Relation">
          <RelationForm
+          fromContentId={fromEntryId > 0 ? fromEntryId : undefined}
            onSubmit={async (payload) => {
              try {
-               const created = await relationsService.createRelation({
-                 ...payload,
-                 from_content_id: fromEntryId || payload.from_content_id,
-               });
+              const sourceId = fromEntryId || payload.fromContentId;
+              if (!sourceId || sourceId <= 0) {
+                alert("Source entry is required");
+                return;
+              }
+              const created = await relationsService.createRelation(sourceId, {
+                to_content_id: payload.toContentId,
+                relation_type: payload.relationType,
+              });
                setRelations((prev) => [created, ...prev]);
                setShowCreateModal(false);
              } catch (e) {
