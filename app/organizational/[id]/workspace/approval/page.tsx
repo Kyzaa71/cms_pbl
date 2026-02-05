@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import ApprovalQueuePage from "@/app/approval-queue/page";
+import ApprovalQueueClient from "@/app/approval-queue/ApprovalQueueClient";
 
-export default function OrgWorkspaceApprovalPage() {
+function OrgWorkspaceApprovalInner() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,5 +21,13 @@ export default function OrgWorkspaceApprovalPage() {
 
   const ready = !!id && searchParams.get("project_id") === String(id);
   if (!ready) return null;
-  return <ApprovalQueuePage />;
+  return <ApprovalQueueClient />;
+}
+
+export default function OrgWorkspaceApprovalPage() {
+  return (
+    <Suspense fallback={<div className="p-6"><div className="text-sm text-[var(--muted-foreground)]">Loading...</div></div>}>
+      <OrgWorkspaceApprovalInner />
+    </Suspense>
+  );
 }
